@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { type Lang, loadLang, translate } from "./i18n";
 
 type SignalMessage = { type: string; room?: string; from?: string; payload?: any };
 type Button = "UP" | "DOWN" | "LEFT" | "RIGHT" | "A" | "B" | "START" | "SELECT";
@@ -27,8 +28,35 @@ function loadKeyBindings(): Record<Button, string> {
   }
 }
 
+const statusKeys: Record<string, string> = {
+  Disconnected: "statusDisconnected",
+  Connecting: "statusConnecting",
+  "Connected to signaling": "statusSignalingConnected",
+  "WebRTC connected": "statusWebrtcConnected",
+  "WebRTC failed": "statusWebrtcFailed",
+  "Answer sent": "statusAnswerSent",
+  "Signaling error": "statusSignalingError",
+};
+const mediaKeys: Record<string, string> = {
+  "Waiting for game server": "waitingForGameServer",
+  "Receiving media": "receivingMedia",
+  "Game server disconnected": "gameServerDisconnected",
+};
+
+function LangToggle({ lang, setLang }: { lang: Lang; setLang: (lang: Lang) => void }) {
+  return (
+    <div className="lang-toggle" role="group" aria-label="Language">
+      <button className={lang === "es" ? "lang-option active" : "lang-option"} onClick={() => setLang("es")}>ES</button>
+      <button className={lang === "en" ? "lang-option active" : "lang-option"} onClick={() => setLang("en")}>EN</button>
+    </div>
+  );
+}
+
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [lang, setLang] = useState<Lang>(loadLang);
+  const t = (key: Parameters<typeof translate>[1]) => translate(lang, key);
+  useEffect(() => { localStorage.setItem("rc_lang", lang); document.documentElement.lang = lang; }, [lang]);
   const socketRef = useRef<WebSocket | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const inputRef = useRef<RTCDataChannel | null>(null);
@@ -336,33 +364,36 @@ export default function App() {
   if (!authToken) {
     return <div className="auth-split">
       <div className="auth-visual">
-        <div className="brand"><span className="brand-mark">◆</span><span className="brand-name">retro<em>deck</em></span></div>
-        <h1 className="auth-visual-title">Play retro games together,<br />streamed from the cloud.</h1>
-        <p className="auth-visual-sub">No downloads, no emulator setup. Host a room, share the code, and everyone plays from the browser — NES and SNES, in sync, in real time.</p>
+        <div className="brand-row">
+          <div className="brand"><span className="brand-mark">◆</span><span className="brand-name">retro<em>deck</em></span></div>
+          <LangToggle lang={lang} setLang={setLang} />
+        </div>
+        <h1 className="auth-visual-title" dangerouslySetInnerHTML={{ __html: t("brandTagline") }} />
+        <p className="auth-visual-sub">{t("brandSub")}</p>
         <ul className="auth-feature-list">
-          <li><span className="dot live" />Up to 4 players per room, each with their own controller</li>
-          <li><span className="dot live" />Bring your own ROMs — upload and go</li>
-          <li><span className="dot live" />Built-in chat while you play</li>
+          <li><span className="dot live" />{t("featurePlayers")}</li>
+          <li><span className="dot live" />{t("featureRoms")}</li>
+          <li><span className="dot live" />{t("featureChat")}</li>
         </ul>
       </div>
       <div className="auth-form-side">
         <section className="auth-gate">
-          <h2>{authMode === "login" ? "Welcome back" : "Create your account"}</h2>
-          <p className="auth-sub">{authMode === "login" ? "Log in to jump into a room." : "One account, every room you host or join."}</p>
+          <h2>{authMode === "login" ? t("welcomeBack") : t("createAccount")}</h2>
+          <p className="auth-sub">{authMode === "login" ? t("loginSub") : t("registerSub")}</p>
           <div className="auth-form">
-            <label className="auth-field-label" htmlFor="auth-username">Username</label>
-            <input id="auth-username" className="field" value={authForm.username} onChange={(e) => setAuthForm((f) => ({ ...f, username: e.target.value }))} placeholder="e.g. player_one" aria-label="Username" autoComplete="username" />
-            <label className="auth-field-label" htmlFor="auth-password">Password</label>
-            <input id="auth-password" className="field" type="password" value={authForm.password} onChange={(e) => setAuthForm((f) => ({ ...f, password: e.target.value }))} placeholder="••••••••" aria-label="Password" autoComplete={authMode === "login" ? "current-password" : "new-password"} />
+            <label className="auth-field-label" htmlFor="auth-username">{t("username")}</label>
+            <input id="auth-username" className="field" value={authForm.username} onChange={(e) => setAuthForm((f) => ({ ...f, username: e.target.value }))} placeholder={t("usernamePlaceholder")} aria-label={t("username")} autoComplete="username" />
+            <label className="auth-field-label" htmlFor="auth-password">{t("password")}</label>
+            <input id="auth-password" className="field" type="password" value={authForm.password} onChange={(e) => setAuthForm((f) => ({ ...f, password: e.target.value }))} placeholder="••••••••" aria-label={t("password")} autoComplete={authMode === "login" ? "current-password" : "new-password"} />
             <button className="btn-primary" onClick={submitAuth} disabled={authLoading || !authForm.username || !authForm.password}>
-              {authLoading ? "…" : authMode === "login" ? "Log in" : "Create account"}
+              {authLoading ? "…" : authMode === "login" ? t("logIn") : t("createAccountBtn")}
             </button>
           </div>
           {authError && <p className="form-error">{authError}</p>}
           <p className="auth-switch">
-            {authMode === "login" ? "Need an account?" : "Have an account?"}{" "}
+            {authMode === "login" ? t("needAccount") : t("haveAccount")}{" "}
             <button className="link-button" onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(""); }}>
-              {authMode === "login" ? "Register" : "Log in"}
+              {authMode === "login" ? t("register") : t("logIn")}
             </button>
           </p>
         </section>
@@ -373,25 +404,28 @@ export default function App() {
   return <main>
     <header className="brand-header">
       <div className="brand"><span className="brand-mark">◆</span><span className="brand-name">retro<em>deck</em></span></div>
-      {inLobby && <span className="user-chip">{authUsername}<button className="link-button" onClick={logout}>Log out</button></span>}
-      {!inLobby && <span className="user-chip">Room {room}</span>}
+      <div className="header-right">
+        <LangToggle lang={lang} setLang={setLang} />
+        {inLobby && <span className="user-chip">{authUsername}<button className="link-button" onClick={logout}>{t("logOut")}</button></span>}
+        {!inLobby && <span className="user-chip">{t("room")} {room}</span>}
+      </div>
     </header>
 
     {inLobby && (
       <section className="lobby">
         <div className="lobby-head">
           <div>
-            <h2>Rooms in session</h2>
-            <p className="lobby-sub">Jump into a friend's game, or spin up your own.</p>
+            <h2>{t("roomsInSession")}</h2>
+            <p className="lobby-sub">{t("lobbySub")}</p>
           </div>
-          <button className="btn-ghost" onClick={() => { void fetch(roomsUrl).then((r) => r.json()).then((d) => setActiveRooms(d.rooms)).catch(() => setActiveRooms([])); }}>↻ Refresh</button>
+          <button className="btn-ghost" onClick={() => { void fetch(roomsUrl).then((r) => r.json()).then((d) => setActiveRooms(d.rooms)).catch(() => setActiveRooms([])); }}>{t("refresh")}</button>
         </div>
 
         {activeRooms.length === 0 ? (
           <div className="empty-state">
             <div className="empty-glyph">▢</div>
-            <p>No rooms online right now.</p>
-            <span>Create one below and you'll be P1.</span>
+            <p>{t("noRoomsOnline")}</p>
+            <span>{t("createOneBelow")}</span>
           </div>
         ) : (
           <div className="room-grid">
@@ -402,10 +436,10 @@ export default function App() {
                   <span className="room-card-id">{entry.room}</span>
                 </div>
                 <div className="room-card-meta">
-                  <span>{entry.owner ? `hosted by ${entry.owner}` : "unowned"}</span>
-                  <span className="room-card-players">{entry.peerCount} playing</span>
+                  <span>{entry.owner ? `${t("hostedBy")} ${entry.owner}` : t("unowned")}</span>
+                  <span className="room-card-players">{entry.peerCount} {t("playing")}</span>
                 </div>
-                <span className="room-card-cta">Join room →</span>
+                <span className="room-card-cta">{t("joinRoomCta")}</span>
               </button>
             ))}
           </div>
@@ -413,12 +447,12 @@ export default function App() {
 
         <div className="lobby-split">
           <div className="lobby-games">
-            <p className="form-label showcase-label">Choose a ROM to host</p>
+            <p className="form-label showcase-label">{t("chooseRom")}</p>
             {roms.length === 0 ? (
               <div className="empty-state">
                 <div className="empty-glyph">▢</div>
-                <p>No ROMs uploaded yet.</p>
-                <span>Upload one from the panel to start hosting.</span>
+                <p>{t("noRomsUploaded")}</p>
+                <span>{t("uploadFromPanel")}</span>
               </div>
             ) : (
               <div className="game-showcase">
@@ -439,40 +473,40 @@ export default function App() {
 
           <aside className="lobby-side">
             <div className="lobby-card">
-              <p className="form-label">Host this ROM</p>
+              <p className="form-label">{t("hostThisRom")}</p>
               <button className="btn-primary lobby-card-cta" onClick={createRoom} disabled={creating || !selectedRom}>
-                {creating ? "Starting…" : selectedRom ? `Create room · ${selectedRom}` : "Select a ROM first"}
+                {creating ? t("starting") : selectedRom ? `${t("createRoom")} · ${selectedRom}` : t("selectRomFirst")}
               </button>
               {createError && <p className="form-error">{createError}</p>}
             </div>
 
             <div className="lobby-card">
-              <p className="form-label">Upload ROM</p>
-              <span className="lobby-card-hint">.nes · .sfc · .smc, up to 8 MB</span>
+              <p className="form-label">{t("uploadRom")}</p>
+              <span className="lobby-card-hint">{t("uploadHint")}</span>
               <label className="upload-drop">
                 <input
                   type="file"
                   accept=".nes,.sfc,.smc"
                   disabled={uploading || !authToken}
                   onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadRom(file); event.target.value = ""; }}
-                  aria-label="Upload ROM"
+                  aria-label={t("uploadRom")}
                 />
-                <span>{uploading ? "Uploading…" : "Choose file or drop it here"}</span>
+                <span>{uploading ? t("uploading") : t("chooseFileDrop")}</span>
               </label>
               {uploadError && <p className="form-error">{uploadError}</p>}
             </div>
 
             <div className="lobby-card">
-              <p className="form-label">Join by code</p>
+              <p className="form-label">{t("joinByCode")}</p>
               <div className="form-row">
                 <input
                   className="field"
                   value={room}
                   onChange={(event) => { setRoom(event.target.value); setRoomTouched(true); }}
-                  placeholder="room code"
-                  aria-label="Room name"
+                  placeholder={t("roomCodePlaceholder")}
+                  aria-label={t("room")}
                 />
-                <button className="btn-ghost" onClick={() => connect()} disabled={status !== "Disconnected"}>Join</button>
+                <button className="btn-ghost" onClick={() => connect()} disabled={status !== "Disconnected"}>{t("join")}</button>
               </div>
             </div>
           </aside>
@@ -484,7 +518,7 @@ export default function App() {
       <div className="room-layout">
         <div className="player-stage">
           <div className="player-topbar">
-            <span className="player-pill"><span className={status.includes("Connected") ? "dot live" : "dot"} />{status.includes("Connected") ? "Live" : status}</span>
+            <span className="player-pill"><span className={status.includes("Connected") ? "dot live" : "dot"} />{status.includes("Connected") ? t("live") : translate(lang, (statusKeys[status] as any) ?? "statusDisconnected")}</span>
             {playerNumber && <span className="player-pill accent">P{playerNumber}</span>}
             <span className="player-pill muted">{room}</span>
             <button className="icon-button" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
@@ -503,17 +537,17 @@ export default function App() {
               onLoadedMetadata={() => { if (videoRef.current) setIntrinsicSize({ w: videoRef.current.videoWidth, h: videoRef.current.videoHeight }); }}
               style={scale !== "fit" && intrinsicSize ? { width: intrinsicSize.w * Number(scale), height: "auto" } : undefined}
             />
-            {mediaState !== "Receiving media" && <div className="placeholder">{mediaState}</div>}
+            {mediaState !== "Receiving media" && <div className="placeholder">{translate(lang, (mediaKeys[mediaState] as any) ?? "waitingForGameServer")}</div>}
           </div>
         </div>
 
         <aside className="social-panel">
           <div className="social-block">
-            <p className="form-label">Players</p>
+            <p className="form-label">{t("players")}</p>
             <ul className="roster-list">
               <li className="roster-row">
                 <span className="roster-tag">P{playerNumber ?? 1}</span>
-                <span className="roster-name">{authUsername} (you)</span>
+                <span className="roster-name">{authUsername} ({t("you")})</span>
               </li>
               {roster.map((entry) => (
                 <li key={entry.peerId} className="roster-row">
@@ -524,9 +558,9 @@ export default function App() {
             </ul>
           </div>
           <div className="social-block chat-block">
-            <p className="form-label">Chat</p>
+            <p className="form-label">{t("chat")}</p>
             <div className="chat-log">
-              {chatMessages.length === 0 && <p className="chat-empty">Say hi to the room.</p>}
+              {chatMessages.length === 0 && <p className="chat-empty">{t("sayHi")}</p>}
               {chatMessages.map((message, index) => (
                 <div key={index} className="chat-message">
                   <span className="chat-author">{message.playerNumber ? `P${message.playerNumber} ` : ""}{message.username}</span>
@@ -541,10 +575,10 @@ export default function App() {
                 value={chatInput}
                 onChange={(event) => setChatInput(event.target.value)}
                 onKeyDown={(event) => { if (event.key === "Enter") sendChat(); }}
-                placeholder="Message the room…"
-                aria-label="Chat message"
+                placeholder={t("messagePlaceholder")}
+                aria-label={t("chat")}
               />
-              <button className="btn-ghost" onClick={sendChat} disabled={!chatInput.trim()}>Send</button>
+              <button className="btn-ghost" onClick={sendChat} disabled={!chatInput.trim()}>{t("send")}</button>
             </div>
           </div>
         </aside>
@@ -554,18 +588,18 @@ export default function App() {
         <div className="settings-backdrop" onClick={() => setSettingsOpen(false)}>
           <div className="settings-panel" onClick={(event) => event.stopPropagation()}>
             <div className="settings-head">
-              <h2>Settings</h2>
+              <h2>{t("settings")}</h2>
               <button className="icon-button" aria-label="Close" onClick={() => setSettingsOpen(false)}>✕</button>
             </div>
             <div className="settings-tabs">
-              <button className={settingsTab === "display" ? "tab active" : "tab"} onClick={() => setSettingsTab("display")}>Display</button>
-              <button className={settingsTab === "audio" ? "tab active" : "tab"} onClick={() => setSettingsTab("audio")}>Audio</button>
-              <button className={settingsTab === "controls" ? "tab active" : "tab"} onClick={() => setSettingsTab("controls")}>Controls</button>
+              <button className={settingsTab === "display" ? "tab active" : "tab"} onClick={() => setSettingsTab("display")}>{t("display")}</button>
+              <button className={settingsTab === "audio" ? "tab active" : "tab"} onClick={() => setSettingsTab("audio")}>{t("audio")}</button>
+              <button className={settingsTab === "controls" ? "tab active" : "tab"} onClick={() => setSettingsTab("controls")}>{t("controls")}</button>
             </div>
 
             {settingsTab === "display" && (
               <div className="settings-section">
-                <p className="settings-label">Field of view</p>
+                <p className="settings-label">{t("fieldOfView")}</p>
                 <div className="scale-options">
                   {[["fit", "Fit"], ["1", "1×"], ["2", "2×"], ["3", "3×"]].map(([value, label]) => (
                     <button key={value} className={scale === value ? "scale-option active" : "scale-option"} onClick={() => setScale(value)}>{label}</button>
@@ -576,9 +610,9 @@ export default function App() {
 
             {settingsTab === "audio" && (
               <div className="settings-section">
-                <p className="settings-label">Volume</p>
+                <p className="settings-label">{t("volume")}</p>
                 <div className="volume-row">
-                  <button className="icon-button" aria-label={muted ? "Unmute" : "Mute"} onClick={() => setMuted((v) => !v)}>{muted ? "🔇" : "🔊"}</button>
+                  <button className="icon-button" aria-label={muted ? t("unmute") : t("mute")} onClick={() => setMuted((v) => !v)}>{muted ? "🔇" : "🔊"}</button>
                   <input
                     className="volume-slider"
                     type="range"
@@ -594,13 +628,13 @@ export default function App() {
 
             {settingsTab === "controls" && (
               <div className="settings-section">
-                <p className="settings-label">Keyboard bindings · P{playerNumber ?? 1}</p>
+                <p className="settings-label">{t("keyboardBindings")} · P{playerNumber ?? 1}</p>
                 <ul className="keybind-list">
                   {buttons.map((button) => (
                     <li key={button} className="keybind-row">
                       <span className="keybind-name">{button}</span>
                       <button className="keybind-key" onClick={() => rebindKey(button)}>
-                        {rebinding === button ? "press a key…" : keyBindings[button]}
+                        {rebinding === button ? t("pressAKey") : keyBindings[button]}
                       </button>
                     </li>
                   ))}

@@ -26,6 +26,13 @@ main:has(.room-layout) { width: min(1180px, calc(100% - 32px)); }
 .brand-name { font-family: var(--font-display); font-weight: 600; font-size: 21px; letter-spacing: -.02em; color: var(--paper); }
 .brand-name em { font-style: normal; color: var(--signal); }
 .user-chip { display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-size: 13px; color: var(--mist); }
+.header-right { display: flex; align-items: center; gap: 10px; }
+.brand-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+.lang-toggle { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); }
+.lang-option { border: none; background: transparent; padding: 5px 11px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: .03em; color: var(--mist); }
+.lang-option:hover { border-color: transparent; color: var(--paper); }
+.lang-option.active { background: var(--signal); color: #fff; }
 
 button { border: 1px solid var(--line); background: var(--panel); color: var(--paper); font: 14px var(--font-body); cursor: pointer; border-radius: 10px; transition: border-color .15s ease, transform .1s ease; }
 button:hover { border-color: var(--signal); }

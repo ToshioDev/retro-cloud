@@ -1,0 +1,95 @@
+export type Lang = "en" | "es";
+
+const dict = {
+  brandTagline: { en: "Play retro games together,<br/>streamed from the cloud.", es: "Juega retro con amigos,<br/>transmitido desde la nube." },
+  brandSub: {
+    en: "No downloads, no emulator setup. Host a room, share the code, and everyone plays from the browser — NES and SNES, in sync, in real time.",
+    es: "Sin descargas ni configurar emuladores. Crea una sala, comparte el código y todos juegan desde el navegador — NES y SNES, sincronizado y en tiempo real.",
+  },
+  featurePlayers: { en: "Up to 4 players per room, each with their own controller", es: "Hasta 4 jugadores por sala, cada uno con su propio control" },
+  featureRoms: { en: "Bring your own ROMs — upload and go", es: "Sube tus propias ROMs y empieza a jugar" },
+  featureChat: { en: "Built-in chat while you play", es: "Chat integrado mientras juegas" },
+
+  welcomeBack: { en: "Welcome back", es: "Bienvenido de nuevo" },
+  createAccount: { en: "Create your account", es: "Crea tu cuenta" },
+  loginSub: { en: "Log in to jump into a room.", es: "Inicia sesión para entrar a una sala." },
+  registerSub: { en: "One account, every room you host or join.", es: "Una cuenta para todas las salas que crees o te unas." },
+  username: { en: "Username", es: "Usuario" },
+  password: { en: "Password", es: "Contraseña" },
+  usernamePlaceholder: { en: "e.g. player_one", es: "ej. jugador_uno" },
+  logIn: { en: "Log in", es: "Iniciar sesión" },
+  createAccountBtn: { en: "Create account", es: "Crear cuenta" },
+  needAccount: { en: "Need an account?", es: "¿No tienes cuenta?" },
+  haveAccount: { en: "Have an account?", es: "¿Ya tienes cuenta?" },
+  register: { en: "Register", es: "Regístrate" },
+
+  logOut: { en: "Log out", es: "Cerrar sesión" },
+  room: { en: "Room", es: "Sala" },
+
+  roomsInSession: { en: "Rooms in session", es: "Salas activas" },
+  lobbySub: { en: "Jump into a friend's game, or spin up your own.", es: "Únete a la sala de un amigo o crea la tuya." },
+  refresh: { en: "↻ Refresh", es: "↻ Actualizar" },
+  noRoomsOnline: { en: "No rooms online right now.", es: "No hay salas activas por ahora." },
+  createOneBelow: { en: "Create one below and you'll be P1.", es: "Crea una abajo y serás P1." },
+  hostedBy: { en: "hosted by", es: "creada por" },
+  unowned: { en: "unowned", es: "sin dueño" },
+  playing: { en: "playing", es: "jugando" },
+  joinRoomCta: { en: "Join room →", es: "Unirse →" },
+
+  chooseRom: { en: "Choose a ROM to host", es: "Elige una ROM para crear sala" },
+  noRomsUploaded: { en: "No ROMs uploaded yet.", es: "Aún no hay ROMs subidas." },
+  uploadFromPanel: { en: "Upload one from the panel to start hosting.", es: "Sube una desde el panel para empezar." },
+  hostThisRom: { en: "Host this ROM", es: "Crear sala con esta ROM" },
+  starting: { en: "Starting…", es: "Iniciando…" },
+  createRoom: { en: "Create room", es: "Crear sala" },
+  selectRomFirst: { en: "Select a ROM first", es: "Selecciona una ROM primero" },
+  uploadRom: { en: "Upload ROM", es: "Subir ROM" },
+  uploadHint: { en: ".nes · .sfc · .smc, up to 8 MB", es: ".nes · .sfc · .smc, hasta 8 MB" },
+  uploading: { en: "Uploading…", es: "Subiendo…" },
+  chooseFileDrop: { en: "Choose file or drop it here", es: "Elige un archivo o arrástralo aquí" },
+  joinByCode: { en: "Join by code", es: "Unirse con código" },
+  roomCodePlaceholder: { en: "room code", es: "código de sala" },
+  join: { en: "Join", es: "Unirse" },
+
+  settings: { en: "Settings", es: "Ajustes" },
+  display: { en: "Display", es: "Pantalla" },
+  audio: { en: "Audio", es: "Audio" },
+  controls: { en: "Controls", es: "Controles" },
+  fieldOfView: { en: "Field of view", es: "Zoom de pantalla" },
+  volume: { en: "Volume", es: "Volumen" },
+  mute: { en: "Mute", es: "Silenciar" },
+  unmute: { en: "Unmute", es: "Activar sonido" },
+  keyboardBindings: { en: "Keyboard bindings", es: "Controles de teclado" },
+  pressAKey: { en: "press a key…", es: "presiona una tecla…" },
+
+  players: { en: "Players", es: "Jugadores" },
+  you: { en: "you", es: "tú" },
+  chat: { en: "Chat", es: "Chat" },
+  sayHi: { en: "Say hi to the room.", es: "Saluda a la sala." },
+  messagePlaceholder: { en: "Message the room…", es: "Escribe un mensaje…" },
+  send: { en: "Send", es: "Enviar" },
+
+  statusDisconnected: { en: "Disconnected", es: "Desconectado" },
+  statusConnecting: { en: "Connecting", es: "Conectando" },
+  statusSignalingConnected: { en: "Connected to signaling", es: "Conectado a señalización" },
+  statusWebrtcConnected: { en: "WebRTC connected", es: "WebRTC conectado" },
+  statusWebrtcFailed: { en: "WebRTC failed", es: "WebRTC falló" },
+  statusAnswerSent: { en: "Answer sent", es: "Respuesta enviada" },
+  statusSignalingError: { en: "Signaling error", es: "Error de señalización" },
+  live: { en: "Live", es: "En vivo" },
+  waitingForGameServer: { en: "Waiting for game server", es: "Esperando al servidor de juego" },
+  receivingMedia: { en: "Receiving media", es: "Recibiendo transmisión" },
+  gameServerDisconnected: { en: "Game server disconnected", es: "Servidor de juego desconectado" },
+} satisfies Record<string, Record<Lang, string>>;
+
+export type TKey = keyof typeof dict;
+
+export function translate(lang: Lang, key: TKey): string {
+  return dict[key][lang] ?? dict[key].en;
+}
+
+export function loadLang(): Lang {
+  const stored = localStorage.getItem("rc_lang");
+  if (stored === "en" || stored === "es") return stored;
+  return navigator.language?.toLowerCase().startsWith("es") ? "es" : "es";
+}

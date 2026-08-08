@@ -64,11 +64,26 @@ function randomRoomId(): string {
   return randomBytes(4).toString("hex");
 }
 
+async function resolveGameServerImage(): Promise<string> {
+  if (!docker) throw new Error("docker is not configured");
+  const exactMatch = await docker.listImages({ filters: JSON.stringify({ reference: [`${gameServerImage}:latest`] }) });
+  if (exactMatch.length > 0) return `${gameServerImage}:latest`;
+  const images = await docker.listImages({ filters: JSON.stringify({ reference: [gameServerImage] }) });
+  const newest = images
+    .filter((image) => image.RepoTags && image.RepoTags.length > 0)
+    .sort((a, b) => b.Created - a.Created)[0];
+  if (!newest?.RepoTags?.[0]) {
+    throw new Error(`no built image found for ${gameServerImage}; deploy the game-server service first`);
+  }
+  return newest.RepoTags[0];
+}
+
 async function spawnGameServer(game: string, romPath: string, owner: string): Promise<string> {
   if (!docker) throw new Error("room creation is disabled: ROMS_DIR is not configured on the signaling service");
   const room = randomRoomId();
+  const image = await resolveGameServerImage();
   const container = await docker.createContainer({
-    Image: gameServerImage,
+    Image: image,
     Env: [
       `GAME=${game}`,
       `ROM_PATH=${romPath}`,
