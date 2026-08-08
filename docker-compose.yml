@@ -1,0 +1,54 @@
+services:
+  signaling:
+    build:
+      context: ./signaling
+    environment:
+      PORT: 8080
+      GAME_SERVER_IMAGE: ${GAME_SERVER_IMAGE:-piepacker-clone-game-server}
+      DOCKER_NETWORK: ${DOCKER_NETWORK:-piepacker-clone_default}
+      GAME_SERVER_SIGNALING_URL: ${GAME_SERVER_SIGNALING_URL:-ws://signaling:8080/signaling}
+      ROMS_DIR: ${ROMS_DIR:-}
+      USERS_DB_PATH: /data/users.json
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - signaling-data:/data
+    ports:
+      - "${SIGNALING_PORT:-8080}:8080"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      args:
+        VITE_SIGNALING_URL: ${WEB_SIGNALING_URL:-ws://localhost:${SIGNALING_PORT:-8080}/signaling}
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    depends_on:
+      - signaling
+    restart: unless-stopped
+
+  game-server:
+    build:
+      context: ./game-server
+    environment:
+      GAME: ${GAME:-nes}
+      ROM_PATH: ${ROM_PATH:-/roms/game.nes}
+      VIDEO_WIDTH: ${VIDEO_WIDTH:-640}
+      VIDEO_HEIGHT: ${VIDEO_HEIGHT:-480}
+      VIDEO_FPS: ${VIDEO_FPS:-60}
+      VIDEO_BITRATE: ${VIDEO_BITRATE:-2M}
+      RUN_FOR_SECONDS: ${RUN_FOR_SECONDS:-0}
+      FRAME_DUMP_PATH: ${FRAME_DUMP_PATH:-}
+      FRAME_DUMP_FRAME: ${FRAME_DUMP_FRAME:-1}
+      VIDEO_OUTPUT_PATH: ${VIDEO_OUTPUT_PATH:-}
+      WEBRTC_DEBUG: ${WEBRTC_DEBUG:-0}
+      SIGNALING_URL: ${SIGNALING_URL:-ws://signaling:8080/signaling}
+      SIGNALING_ROOM: ${SIGNALING_ROOM:-}
+    volumes:
+      - ${ROMS_DIR:-./roms}:/roms:ro
+    depends_on:
+      - signaling
+    restart: unless-stopped
+
+volumes:
+  signaling-data:

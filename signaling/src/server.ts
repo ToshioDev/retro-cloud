@@ -1,0 +1,278 @@
+import { createServer } from "node:http";
+import { randomUUID, randomBytes } from "node:crypto";
+import { WebSocketServer, WebSocket } from "ws";
+import Docker from "dockerode";
+import * as auth from "./auth.js";
+
+type SignalMessage = {
+  type: "join" | "offer" | "answer" | "candidate" | "leave" | "chat";
+  room?: string;
+  role?: string;
+  username?: string;
+  to?: string;
+  from?: string;
+  payload?: unknown;
+};
+
+type Peer = { id: string; room?: string; role?: string; playerNumber?: number; username?: string; socket: WebSocket };
+type RoomState = { nextPlayerNumber: number };
+
+const port = Number(process.env.PORT ?? 8080);
+const peers = new Map<string, Peer>();
+const rooms = new Map<string, RoomState>();
+
+const gameServerImage = process.env.GAME_SERVER_IMAGE ?? "piepacker-clone-game-server";
+const dockerNetwork = process.env.DOCKER_NETWORK ?? "";
+const romsHostDir = process.env.ROMS_DIR ?? "";
+const signalingUrlForGameServer = process.env.GAME_SERVER_SIGNALING_URL ?? "ws://signaling:8080/signaling";
+const docker = romsHostDir ? new Docker() : null;
+const managedRooms = new Map<string, { containerId: string }>();
+const roomOwners = new Map<string, string>();
+const allowedGames = new Set(["nes", "snes"]);
+const defaultRomPath: Record<string, string> = { nes: "/roms/game.nes", snes: "/roms/game.sfc" };
+
+function randomRoomId(): string {
+  return randomBytes(4).toString("hex");
+}
+
+async function spawnGameServer(game: string, romPath: string, owner: string): Promise<string> {
+  if (!docker) throw new Error("room creation is disabled: ROMS_DIR is not configured on the signaling service");
+  const room = randomRoomId();
+  const container = await docker.createContainer({
+    Image: gameServerImage,
+    Env: [
+      `GAME=${game}`,
+      `ROM_PATH=${romPath}`,
+      "WEBRTC_DEBUG=1",
+      `SIGNALING_URL=${signalingUrlForGameServer}`,
+      `SIGNALING_ROOM=${room}`,
+    ],
+    HostConfig: {
+      Binds: [`${romsHostDir}:/roms:ro`],
+      NetworkMode: dockerNetwork || undefined,
+      AutoRemove: true,
+    },
+  });
+  await container.start();
+  managedRooms.set(room, { containerId: container.id });
+  roomOwners.set(room, owner);
+  console.log(`[SIGNALING] spawned game-server for room ${room} (${game}, ${romPath}, owner=${owner})`);
+  return room;
+}
+
+async function teardownRoom(room: string) {
+  const managed = managedRooms.get(room);
+  if (!managed || !docker) return;
+  managedRooms.delete(room);
+  roomOwners.delete(room);
+  rooms.delete(room);
+  try {
+    await docker.getContainer(managed.containerId).stop();
+    console.log(`[SIGNALING] stopped game-server for empty room ${room}`);
+  } catch (error) {
+    console.error(`[SIGNALING] failed to stop game-server for room ${room}:`, error instanceof Error ? error.message : error);
+  }
+}
+
+function bearerToken(request: import("node:http").IncomingMessage): string | undefined {
+  const header = request.headers.authorization;
+  if (!header || !header.startsWith("Bearer ")) return undefined;
+  return header.slice("Bearer ".length);
+}
+
+function readJsonBody<T>(request: import("node:http").IncomingMessage): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    request.on("data", (chunk) => { raw += chunk; if (raw.length > 4096) request.destroy(); });
+    request.on("end", () => {
+      try { resolve(JSON.parse(raw || "{}") as T); } catch (error) { reject(error); }
+    });
+    request.on("error", reject);
+  });
+}
+const httpServer = createServer((request, response) => {
+  response.setHeader("Access-Control-Allow-Origin", "*");
+  response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  response.setHeader("Access-Control-Allow-Headers", "content-type, authorization");
+  if (request.method === "OPTIONS") {
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+  if (request.method === "POST" && request.url === "/health") {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ status: "ok", service: "signaling" }));
+    return;
+  }
+  if (request.method === "GET" && request.url === "/rooms") {
+    const peerCounts = new Map<string, number>();
+    const hostedRooms = new Set<string>();
+    for (const peer of peers.values()) {
+      if (!peer.room) continue;
+      if (peer.role === "host") { hostedRooms.add(peer.room); continue; }
+      peerCounts.set(peer.room, (peerCounts.get(peer.room) ?? 0) + 1);
+    }
+    const activeRooms = [...hostedRooms]
+      .filter((room) => roomOwners.has(room))
+      .map((room) => ({ room, peerCount: peerCounts.get(room) ?? 0, owner: roomOwners.get(room) ?? null }));
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ rooms: activeRooms }));
+    return;
+  }
+  if (request.method === "POST" && request.url === "/auth/register") {
+    readJsonBody<{ username?: string; password?: string }>(request)
+      .then((body) => {
+        const { token } = auth.register(String(body.username ?? ""), String(body.password ?? ""));
+        response.writeHead(201, { "content-type": "application/json" });
+        response.end(JSON.stringify({ token, username: body.username }));
+      })
+      .catch((error) => {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : "registration failed" }));
+      });
+    return;
+  }
+  if (request.method === "POST" && request.url === "/auth/login") {
+    readJsonBody<{ username?: string; password?: string }>(request)
+      .then((body) => {
+        const { token } = auth.login(String(body.username ?? ""), String(body.password ?? ""));
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ token, username: body.username }));
+      })
+      .catch((error) => {
+        response.writeHead(401, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : "login failed" }));
+      });
+    return;
+  }
+  if (request.method === "POST" && request.url === "/auth/logout") {
+    auth.logout(bearerToken(request));
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+  if (request.method === "POST" && request.url === "/rooms") {
+    const username = auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    readJsonBody<{ game?: string; romPath?: string }>(request)
+      .then(async (body) => {
+        const game = body.game && allowedGames.has(body.game) ? body.game : "nes";
+        const romPath = body.romPath && body.romPath.startsWith("/roms/") ? body.romPath : defaultRomPath[game];
+        const room = await spawnGameServer(game, romPath, username);
+        response.writeHead(201, { "content-type": "application/json" });
+        response.end(JSON.stringify({ room, game, romPath, owner: username }));
+      })
+      .catch((error) => {
+        console.error("[SIGNALING] failed to create room:", error instanceof Error ? error.message : error);
+        response.writeHead(500, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to create room" }));
+      });
+    return;
+  }
+  response.writeHead(404);
+  response.end();
+});
+
+const webSockets = new WebSocketServer({ noServer: true });
+httpServer.on("upgrade", (request, socket, head) => {
+  if (request.url !== "/signaling") {
+    socket.destroy();
+    return;
+  }
+  webSockets.handleUpgrade(request, socket, head, (client) => webSockets.emit("connection", client, request));
+});
+
+function send(peer: Peer, message: SignalMessage) {
+  if (peer.socket.readyState === WebSocket.OPEN) peer.socket.send(JSON.stringify(message));
+}
+
+function broadcast(room: string, sender: string, message: SignalMessage) {
+  for (const peer of peers.values()) {
+    if (peer.room === room && peer.id !== sender) send(peer, message);
+  }
+}
+
+function broadcastAll(room: string, message: SignalMessage) {
+  for (const peer of peers.values()) {
+    if (peer.room === room) send(peer, message);
+  }
+}
+
+webSockets.on("connection", (socket) => {
+  const peer: Peer = { id: randomUUID(), socket };
+  peers.set(peer.id, peer);
+  console.log(`[SIGNALING] connected ${peer.id}`);
+
+  socket.on("message", (raw) => {
+    let message: SignalMessage;
+    try {
+      message = JSON.parse(raw.toString()) as SignalMessage;
+    } catch {
+      send(peer, { type: "leave", payload: { reason: "invalid_json" } });
+      return;
+    }
+    if (!["join", "offer", "answer", "candidate", "leave", "chat"].includes(message.type)) return;
+    if (message.type === "join") {
+      const room = typeof message.room === "string" && message.room.length <= 128 ? message.room : "default";
+      peer.room = room;
+      peer.role = message.role === "host" ? "host" : "player";
+      peer.username = typeof message.username === "string" ? message.username.slice(0, 32) : undefined;
+      if (!rooms.has(room)) rooms.set(room, { nextPlayerNumber: 1 });
+      const state = rooms.get(room)!;
+      if (peer.role === "player") {
+        peer.playerNumber = state.nextPlayerNumber;
+        state.nextPlayerNumber += 1;
+      }
+      const joinPayload = { peerId: peer.id, playerNumber: peer.playerNumber, role: peer.role, username: peer.username };
+      send(peer, { type: "join", room, payload: joinPayload });
+      broadcast(room, peer.id, { type: "join", room, payload: joinPayload });
+      // Catch the new peer up on everyone already in the room (and vice versa for a freshly booted host).
+      for (const other of peers.values()) {
+        if (other.id !== peer.id && other.room === room && other.role === "player") {
+          send(peer, { type: "join", room, payload: { peerId: other.id, playerNumber: other.playerNumber, role: "player", username: other.username } });
+        }
+      }
+      console.log(`[SIGNALING] ${peer.id} joined ${room} as ${peer.role}${peer.playerNumber ? ` P${peer.playerNumber}` : ""}`);
+      return;
+    }
+    if (!peer.room) return;
+    if (message.type === "leave") {
+      broadcast(peer.room, peer.id, { type: "leave", room: peer.room, payload: { peerId: peer.id } });
+      peer.room = undefined;
+      return;
+    }
+    if (message.type === "chat") {
+      const body = message.payload as { text?: string } | undefined;
+      const text = typeof body?.text === "string" ? body.text.slice(0, 500).trim() : "";
+      if (!text) return;
+      broadcastAll(peer.room, {
+        type: "chat", room: peer.room,
+        payload: { username: peer.username ?? "anon", playerNumber: peer.playerNumber, text, timestamp: Date.now() },
+      });
+      return;
+    }
+    // offer/answer/candidate are point-to-point: deliver only to the addressed peer.
+    if (message.type === "offer" || message.type === "answer" || message.type === "candidate") {
+      const target = typeof message.to === "string" ? peers.get(message.to) : undefined;
+      if (!target || target.room !== peer.room) return;
+      send(target, { type: message.type, room: peer.room, from: peer.id, payload: message.payload });
+    }
+  });
+
+  socket.on("close", () => {
+    const room = peer.room;
+    if (room) broadcast(room, peer.id, { type: "leave", room, payload: { peerId: peer.id } });
+    peers.delete(peer.id);
+    console.log(`[SIGNALING] disconnected ${peer.id}`);
+    if (room && peer.role === "player" && managedRooms.has(room)) {
+      const remainingPlayers = [...peers.values()].some((other) => other.room === room && other.role === "player");
+      if (!remainingPlayers) void teardownRoom(room);
+    }
+  });
+});
+
+httpServer.listen(port, () => console.log(`[SIGNALING] listening on :${port}`));

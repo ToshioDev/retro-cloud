@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker exec *)",
+      "Bash(SIGNALING_PORT=8081 docker compose build web)"
+    ]
+  }
+}
