@@ -176,6 +176,7 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
         return;
     }
     g_object_set(peer->webrtcbin, "bundle-policy", 3 /* GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE */, nullptr);
+    g_object_set(peer->webrtcbin, "stun-server", "stun://stun.l.google.com:19302", nullptr);
     gst_bin_add_many(GST_BIN(pipeline_), peer->webrtcbin, peer->video_queue, peer->audio_queue, nullptr);
     if (!gst_element_link(video_tee_, peer->video_queue) || !gst_element_link(peer->video_queue, peer->webrtcbin) ||
         !gst_element_link(audio_tee_, peer->audio_queue) || !gst_element_link(peer->audio_queue, peer->webrtcbin)) {
