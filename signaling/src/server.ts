@@ -1,5 +1,8 @@
 import { createServer } from "node:http";
 import { randomUUID, randomBytes } from "node:crypto";
+import { readdir, stat, rename, unlink } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { join, basename, extname } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import Docker from "dockerode";
 import * as auth from "./auth.js";
@@ -24,12 +27,38 @@ const rooms = new Map<string, RoomState>();
 const gameServerImage = process.env.GAME_SERVER_IMAGE ?? "piepacker-clone-game-server";
 const dockerNetwork = process.env.DOCKER_NETWORK ?? "";
 const romsHostDir = process.env.ROMS_DIR ?? "";
+const romsLocalDir = "/roms";
 const signalingUrlForGameServer = process.env.GAME_SERVER_SIGNALING_URL ?? "ws://signaling:8080/signaling";
 const docker = romsHostDir ? new Docker() : null;
 const managedRooms = new Map<string, { containerId: string }>();
 const roomOwners = new Map<string, string>();
-const allowedGames = new Set(["nes", "snes"]);
-const defaultRomPath: Record<string, string> = { nes: "/roms/game.nes", snes: "/roms/game.sfc" };
+const extensionToGame: Record<string, string> = { ".nes": "nes", ".sfc": "snes", ".smc": "snes" };
+const maxRomUploadBytes = 8 * 1024 * 1024;
+
+function gameForExtension(filename: string): string | null {
+  return extensionToGame[extname(filename).toLowerCase()] ?? null;
+}
+
+async function listRoms(): Promise<Array<{ file: string; game: string; size: number }>> {
+  let entries: string[];
+  try {
+    entries = await readdir(romsLocalDir);
+  } catch {
+    return [];
+  }
+  const roms: Array<{ file: string; game: string; size: number }> = [];
+  for (const entry of entries) {
+    const game = gameForExtension(entry);
+    if (!game) continue;
+    try {
+      const info = await stat(join(romsLocalDir, entry));
+      if (info.isFile()) roms.push({ file: entry, game, size: info.size });
+    } catch {
+      // skip unreadable entries
+    }
+  }
+  return roms;
+}
 
 function randomRoomId(): string {
   return randomBytes(4).toString("hex");
@@ -91,6 +120,10 @@ function readJsonBody<T>(request: import("node:http").IncomingMessage): Promise<
   });
 }
 const httpServer = createServer((request, response) => {
+  void handleRequest(request, response);
+});
+
+async function handleRequest(request: import("node:http").IncomingMessage, response: import("node:http").ServerResponse) {
   response.setHeader("Access-Control-Allow-Origin", "*");
   response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   response.setHeader("Access-Control-Allow-Headers", "content-type, authorization");
@@ -119,10 +152,68 @@ const httpServer = createServer((request, response) => {
     response.end(JSON.stringify({ rooms: activeRooms }));
     return;
   }
+  if (request.method === "GET" && request.url === "/roms") {
+    listRoms().then((roms) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ roms }));
+    });
+    return;
+  }
+  if (request.method === "POST" && (request.url === "/roms" || request.url?.startsWith("/roms?"))) {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const requestedName = basename(new URL(request.url ?? "/roms", "http://internal").searchParams.get("filename") ?? "");
+    const game = gameForExtension(requestedName);
+    if (!requestedName || !game) {
+      response.writeHead(400, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "filename must end in .nes, .sfc, or .smc" }));
+      return;
+    }
+    const finalPath = join(romsLocalDir, requestedName);
+    const tmpPath = `${finalPath}.uploading-${randomUUID()}`;
+    let receivedBytes = 0;
+    let aborted = false;
+    const out = createWriteStream(tmpPath);
+    request.on("data", (chunk: Buffer) => {
+      receivedBytes += chunk.length;
+      if (receivedBytes > maxRomUploadBytes) {
+        aborted = true;
+        request.destroy();
+        out.destroy();
+        void unlink(tmpPath).catch(() => {});
+      }
+    });
+    request.pipe(out);
+    out.on("finish", () => {
+      if (aborted) return;
+      rename(tmpPath, finalPath)
+        .then(() => {
+          console.log(`[SIGNALING] ${username} uploaded ROM ${requestedName} (${receivedBytes} bytes)`);
+          response.writeHead(201, { "content-type": "application/json" });
+          response.end(JSON.stringify({ file: requestedName, game, size: receivedBytes }));
+        })
+        .catch((error) => {
+          response.writeHead(500, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to save ROM" }));
+        });
+    });
+    request.on("error", () => {
+      void unlink(tmpPath).catch(() => {});
+      if (!response.headersSent) {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "upload failed" }));
+      }
+    });
+    return;
+  }
   if (request.method === "POST" && request.url === "/auth/register") {
     readJsonBody<{ username?: string; password?: string }>(request)
-      .then((body) => {
-        const { token } = auth.register(String(body.username ?? ""), String(body.password ?? ""));
+      .then(async (body) => {
+        const { token } = await auth.register(String(body.username ?? ""), String(body.password ?? ""));
         response.writeHead(201, { "content-type": "application/json" });
         response.end(JSON.stringify({ token, username: body.username }));
       })
@@ -134,8 +225,8 @@ const httpServer = createServer((request, response) => {
   }
   if (request.method === "POST" && request.url === "/auth/login") {
     readJsonBody<{ username?: string; password?: string }>(request)
-      .then((body) => {
-        const { token } = auth.login(String(body.username ?? ""), String(body.password ?? ""));
+      .then(async (body) => {
+        const { token } = await auth.login(String(body.username ?? ""), String(body.password ?? ""));
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({ token, username: body.username }));
       })
@@ -146,25 +237,27 @@ const httpServer = createServer((request, response) => {
     return;
   }
   if (request.method === "POST" && request.url === "/auth/logout") {
-    auth.logout(bearerToken(request));
+    await auth.logout(bearerToken(request));
     response.writeHead(204);
     response.end();
     return;
   }
   if (request.method === "POST" && request.url === "/rooms") {
-    const username = auth.usernameForToken(bearerToken(request));
+    const username = await auth.usernameForToken(bearerToken(request));
     if (!username) {
       response.writeHead(401, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: "authentication required" }));
       return;
     }
-    readJsonBody<{ game?: string; romPath?: string }>(request)
+    readJsonBody<{ file?: string }>(request)
       .then(async (body) => {
-        const game = body.game && allowedGames.has(body.game) ? body.game : "nes";
-        const romPath = body.romPath && body.romPath.startsWith("/roms/") ? body.romPath : defaultRomPath[game];
-        const room = await spawnGameServer(game, romPath, username);
+        const roms = await listRoms();
+        const rom = roms.find((entry) => entry.file === body.file) ?? roms[0];
+        if (!rom) throw new Error("no ROMs available: upload one first");
+        const romPath = `/roms/${rom.file}`;
+        const room = await spawnGameServer(rom.game, romPath, username);
         response.writeHead(201, { "content-type": "application/json" });
-        response.end(JSON.stringify({ room, game, romPath, owner: username }));
+        response.end(JSON.stringify({ room, game: rom.game, romPath, owner: username }));
       })
       .catch((error) => {
         console.error("[SIGNALING] failed to create room:", error instanceof Error ? error.message : error);
@@ -175,7 +268,7 @@ const httpServer = createServer((request, response) => {
   }
   response.writeHead(404);
   response.end();
-});
+}
 
 const webSockets = new WebSocketServer({ noServer: true });
 httpServer.on("upgrade", (request, socket, head) => {

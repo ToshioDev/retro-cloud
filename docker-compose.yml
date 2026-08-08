@@ -8,12 +8,24 @@ services:
       DOCKER_NETWORK: ${DOCKER_NETWORK:-piepacker-clone_default}
       GAME_SERVER_SIGNALING_URL: ${GAME_SERVER_SIGNALING_URL:-ws://signaling:8080/signaling}
       ROMS_DIR: ${ROMS_DIR:-}
-      USERS_DB_PATH: /data/users.json
+      DATABASE_URL: ${DATABASE_URL:-postgres://retro:retro@postgres:5432/retro_cloud}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - signaling-data:/data
+      - ${ROMS_DIR:-./roms}:/roms
     expose:
       - "8080"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: retro
+      POSTGRES_PASSWORD: retro
+      POSTGRES_DB: retro_cloud
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
     restart: unless-stopped
 
   web:
@@ -51,4 +63,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  signaling-data:
+  postgres-data:

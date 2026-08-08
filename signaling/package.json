@@ -9,11 +9,13 @@
   },
   "dependencies": {
     "dockerode": "^4.0.5",
+    "pg": "^8.23.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/dockerode": "^3.3.31",
     "@types/node": "^22.15.30",
+    "@types/pg": "^8.21.0",
     "@types/ws": "^8.18.1",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3"

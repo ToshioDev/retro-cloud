@@ -4,14 +4,12 @@ type SignalMessage = { type: string; room?: string; from?: string; payload?: any
 type Button = "UP" | "DOWN" | "LEFT" | "RIGHT" | "A" | "B" | "START" | "SELECT";
 type RosterEntry = { peerId: string; playerNumber: number; username: string };
 type ChatMessage = { username: string; playerNumber?: number; text: string; timestamp: number };
-const gameLibrary = [
-  { id: "nes" as const, label: "NES", blurb: "8-bit classics", defaultRom: "/roms/game.nes" },
-  { id: "snes" as const, label: "SNES", blurb: "16-bit era", defaultRom: "/roms/bomberman5.sfc" },
-];
+type RomEntry = { file: string; game: "nes" | "snes"; size: number };
 
 const signalingUrl = import.meta.env.VITE_SIGNALING_URL ?? "ws://localhost:8080/signaling";
 const apiBase = signalingUrl.replace(/^ws/, "http").replace(/\/signaling\/?$/, "");
 const roomsUrl = `${apiBase}/rooms`;
+const romsUrl = `${apiBase}/roms`;
 const defaultRoom = import.meta.env.VITE_ROOM ?? "";
 type ActiveRoom = { room: string; peerCount: number; owner: string | null };
 const buttons: Button[] = ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "START", "SELECT"];
@@ -46,10 +44,12 @@ export default function App() {
   const [room, setRoom] = useState(defaultRoom || "local");
   const [roomTouched, setRoomTouched] = useState(Boolean(defaultRoom));
   const [activeRooms, setActiveRooms] = useState<ActiveRoom[]>([]);
-  const [newGame, setNewGame] = useState<"nes" | "snes">("snes");
-  const [newRomPath, setNewRomPath] = useState("/roms/bomberman5.sfc");
+  const [roms, setRoms] = useState<RomEntry[]>([]);
+  const [selectedRom, setSelectedRom] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
   const [playerNumber, setPlayerNumber] = useState<number | null>(null);
   const [keyBindings, setKeyBindings] = useState<Record<Button, string>>(loadKeyBindings);
   const [rebinding, setRebinding] = useState<Button | null>(null);
@@ -91,6 +91,46 @@ export default function App() {
     const interval = window.setInterval(refresh, 3000);
     return () => { cancelled = true; window.clearInterval(interval); };
   }, [status, roomTouched]);
+
+  async function refreshRoms() {
+    try {
+      const response = await fetch(romsUrl);
+      const data = await response.json() as { roms: RomEntry[] };
+      setRoms(data.roms);
+      setSelectedRom((current) => current && data.roms.some((r) => r.file === current) ? current : data.roms[0]?.file ?? null);
+    } catch {
+      setRoms([]);
+    }
+  }
+
+  useEffect(() => {
+    if (status !== "Disconnected") return;
+    void refreshRoms();
+  }, [status]);
+
+  async function uploadRom(file: File) {
+    if (!authToken) return;
+    setUploading(true);
+    setUploadError("");
+    try {
+      const response = await fetch(`${romsUrl}?filename=${encodeURIComponent(file.name)}`, {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream", authorization: `Bearer ${authToken}` },
+        body: file,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? `upload failed (${response.status})`);
+      }
+      const uploaded = await response.json() as RomEntry;
+      await refreshRoms();
+      setSelectedRom(uploaded.file);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function connect(targetRoom?: string) {
     if (socketRef.current) return;
@@ -212,14 +252,14 @@ export default function App() {
   }
 
   async function createRoom() {
-    if (!authToken) return;
+    if (!authToken || !selectedRom) return;
     setCreating(true);
     setCreateError("");
     try {
       const response = await fetch(roomsUrl, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ game: newGame, romPath: newRomPath }),
+        body: JSON.stringify({ file: selectedRom }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
@@ -358,31 +398,44 @@ export default function App() {
         )}
 
         <p className="form-label showcase-label">Host a new room</p>
-        <div className="game-showcase">
-          {gameLibrary.map((game) => (
-            <button
-              key={game.id}
-              className={newGame === game.id ? "game-tile active" : "game-tile"}
-              onClick={() => { setNewGame(game.id); setNewRomPath(game.defaultRom); }}
-            >
-              <span className="game-tile-glyph">{game.id === "nes" ? "▮▮" : "▮▮▮"}</span>
-              <span className="game-tile-label">{game.label}</span>
-              <span className="game-tile-blurb">{game.blurb}</span>
-            </button>
-          ))}
-        </div>
+        {roms.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-glyph">▢</div>
+            <p>No ROMs uploaded yet.</p>
+            <span>Upload one below to start hosting.</span>
+          </div>
+        ) : (
+          <div className="game-showcase">
+            {roms.map((rom) => (
+              <button
+                key={rom.file}
+                className={selectedRom === rom.file ? "game-tile active" : "game-tile"}
+                onClick={() => setSelectedRom(rom.file)}
+              >
+                <span className="game-tile-glyph">{rom.game === "nes" ? "▮▮" : "▮▮▮"}</span>
+                <span className="game-tile-label">{rom.file}</span>
+                <span className="game-tile-blurb">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="lobby-forms">
           <div className="lobby-card">
-            <p className="form-label">ROM path</p>
+            <p className="form-label">Upload ROM (.nes / .sfc / .smc)</p>
             <div className="form-row">
               <input
+                type="file"
                 className="field"
-                value={newRomPath}
-                onChange={(event) => setNewRomPath(event.target.value)}
-                placeholder="/roms/game.nes"
-                aria-label="ROM path"
+                accept=".nes,.sfc,.smc"
+                disabled={uploading || !authToken}
+                onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadRom(file); event.target.value = ""; }}
+                aria-label="Upload ROM"
               />
-              <button className="btn-primary" onClick={createRoom} disabled={creating}>{creating ? "Starting…" : "Create room"}</button>
+              {uploading && <span className="player-pill muted">Uploading…</span>}
+            </div>
+            {uploadError && <p className="form-error">{uploadError}</p>}
+            <div className="form-row" style={{ marginTop: 10 }}>
+              <button className="btn-primary" onClick={createRoom} disabled={creating || !selectedRom}>{creating ? "Starting…" : "Create room"}</button>
             </div>
             {createError && <p className="form-error">{createError}</p>}
           </div>
