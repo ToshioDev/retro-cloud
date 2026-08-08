@@ -334,26 +334,40 @@ export default function App() {
   const inLobby = status === "Disconnected";
 
   if (!authToken) {
-    return <main>
-      <header className="brand-header">
+    return <div className="auth-split">
+      <div className="auth-visual">
         <div className="brand"><span className="brand-mark">◆</span><span className="brand-name">retro<em>deck</em></span></div>
-      </header>
-      <section className="auth-gate">
-        <h2>{authMode === "login" ? "Welcome back" : "Create your account"}</h2>
-        <p className="auth-sub">{authMode === "login" ? "Log in to jump into a room." : "One account, every room you host or join."}</p>
-        <div className="auth-form">
-          <input className="field" value={authForm.username} onChange={(e) => setAuthForm((f) => ({ ...f, username: e.target.value }))} placeholder="Username" aria-label="Username" />
-          <input className="field" type="password" value={authForm.password} onChange={(e) => setAuthForm((f) => ({ ...f, password: e.target.value }))} placeholder="Password" aria-label="Password" />
-          <button className="btn-primary" onClick={submitAuth} disabled={authLoading || !authForm.username || !authForm.password}>
-            {authLoading ? "…" : authMode === "login" ? "Log in" : "Create account"}
-          </button>
-        </div>
-        {authError && <p className="form-error">{authError}</p>}
-        <button className="btn-ghost" onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(""); }}>
-          {authMode === "login" ? "Need an account? Register" : "Have an account? Log in"}
-        </button>
-      </section>
-    </main>;
+        <h1 className="auth-visual-title">Play retro games together,<br />streamed from the cloud.</h1>
+        <p className="auth-visual-sub">No downloads, no emulator setup. Host a room, share the code, and everyone plays from the browser — NES and SNES, in sync, in real time.</p>
+        <ul className="auth-feature-list">
+          <li><span className="dot live" />Up to 4 players per room, each with their own controller</li>
+          <li><span className="dot live" />Bring your own ROMs — upload and go</li>
+          <li><span className="dot live" />Built-in chat while you play</li>
+        </ul>
+      </div>
+      <div className="auth-form-side">
+        <section className="auth-gate">
+          <h2>{authMode === "login" ? "Welcome back" : "Create your account"}</h2>
+          <p className="auth-sub">{authMode === "login" ? "Log in to jump into a room." : "One account, every room you host or join."}</p>
+          <div className="auth-form">
+            <label className="auth-field-label" htmlFor="auth-username">Username</label>
+            <input id="auth-username" className="field" value={authForm.username} onChange={(e) => setAuthForm((f) => ({ ...f, username: e.target.value }))} placeholder="e.g. player_one" aria-label="Username" autoComplete="username" />
+            <label className="auth-field-label" htmlFor="auth-password">Password</label>
+            <input id="auth-password" className="field" type="password" value={authForm.password} onChange={(e) => setAuthForm((f) => ({ ...f, password: e.target.value }))} placeholder="••••••••" aria-label="Password" autoComplete={authMode === "login" ? "current-password" : "new-password"} />
+            <button className="btn-primary" onClick={submitAuth} disabled={authLoading || !authForm.username || !authForm.password}>
+              {authLoading ? "…" : authMode === "login" ? "Log in" : "Create account"}
+            </button>
+          </div>
+          {authError && <p className="form-error">{authError}</p>}
+          <p className="auth-switch">
+            {authMode === "login" ? "Need an account?" : "Have an account?"}{" "}
+            <button className="link-button" onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(""); }}>
+              {authMode === "login" ? "Register" : "Log in"}
+            </button>
+          </p>
+        </section>
+      </div>
+    </div>;
   }
 
   return <main>
@@ -397,62 +411,71 @@ export default function App() {
           </div>
         )}
 
-        <p className="form-label showcase-label">Host a new room</p>
-        {roms.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-glyph">▢</div>
-            <p>No ROMs uploaded yet.</p>
-            <span>Upload one below to start hosting.</span>
-          </div>
-        ) : (
-          <div className="game-showcase">
-            {roms.map((rom) => (
-              <button
-                key={rom.file}
-                className={selectedRom === rom.file ? "game-tile active" : "game-tile"}
-                onClick={() => setSelectedRom(rom.file)}
-              >
-                <span className="game-tile-glyph">{rom.game === "nes" ? "▮▮" : "▮▮▮"}</span>
-                <span className="game-tile-label">{rom.file}</span>
-                <span className="game-tile-blurb">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</span>
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="lobby-forms">
-          <div className="lobby-card">
-            <p className="form-label">Upload ROM (.nes / .sfc / .smc)</p>
-            <div className="form-row">
-              <input
-                type="file"
-                className="field"
-                accept=".nes,.sfc,.smc"
-                disabled={uploading || !authToken}
-                onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadRom(file); event.target.value = ""; }}
-                aria-label="Upload ROM"
-              />
-              {uploading && <span className="player-pill muted">Uploading…</span>}
-            </div>
-            {uploadError && <p className="form-error">{uploadError}</p>}
-            <div className="form-row" style={{ marginTop: 10 }}>
-              <button className="btn-primary" onClick={createRoom} disabled={creating || !selectedRom}>{creating ? "Starting…" : "Create room"}</button>
-            </div>
-            {createError && <p className="form-error">{createError}</p>}
+        <div className="lobby-split">
+          <div className="lobby-games">
+            <p className="form-label showcase-label">Choose a ROM to host</p>
+            {roms.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-glyph">▢</div>
+                <p>No ROMs uploaded yet.</p>
+                <span>Upload one from the panel to start hosting.</span>
+              </div>
+            ) : (
+              <div className="game-showcase">
+                {roms.map((rom) => (
+                  <button
+                    key={rom.file}
+                    className={selectedRom === rom.file ? "game-tile active" : "game-tile"}
+                    onClick={() => setSelectedRom(rom.file)}
+                  >
+                    <span className="game-tile-glyph">{rom.game === "nes" ? "▮▮" : "▮▮▮"}</span>
+                    <span className="game-tile-label">{rom.file}</span>
+                    <span className="game-tile-blurb">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          <div className="lobby-card">
-            <p className="form-label">Join by code</p>
-            <div className="form-row">
-              <input
-                className="field"
-                value={room}
-                onChange={(event) => { setRoom(event.target.value); setRoomTouched(true); }}
-                placeholder="room code"
-                aria-label="Room name"
-              />
-              <button className="btn-ghost" onClick={() => connect()} disabled={status !== "Disconnected"}>Join</button>
+          <aside className="lobby-side">
+            <div className="lobby-card">
+              <p className="form-label">Host this ROM</p>
+              <button className="btn-primary lobby-card-cta" onClick={createRoom} disabled={creating || !selectedRom}>
+                {creating ? "Starting…" : selectedRom ? `Create room · ${selectedRom}` : "Select a ROM first"}
+              </button>
+              {createError && <p className="form-error">{createError}</p>}
             </div>
-          </div>
+
+            <div className="lobby-card">
+              <p className="form-label">Upload ROM</p>
+              <span className="lobby-card-hint">.nes · .sfc · .smc, up to 8 MB</span>
+              <label className="upload-drop">
+                <input
+                  type="file"
+                  accept=".nes,.sfc,.smc"
+                  disabled={uploading || !authToken}
+                  onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadRom(file); event.target.value = ""; }}
+                  aria-label="Upload ROM"
+                />
+                <span>{uploading ? "Uploading…" : "Choose file or drop it here"}</span>
+              </label>
+              {uploadError && <p className="form-error">{uploadError}</p>}
+            </div>
+
+            <div className="lobby-card">
+              <p className="form-label">Join by code</p>
+              <div className="form-row">
+                <input
+                  className="field"
+                  value={room}
+                  onChange={(event) => { setRoom(event.target.value); setRoomTouched(true); }}
+                  placeholder="room code"
+                  aria-label="Room name"
+                />
+                <button className="btn-ghost" onClick={() => connect()} disabled={status !== "Disconnected"}>Join</button>
+              </div>
+            </div>
+          </aside>
         </div>
       </section>
     )}
