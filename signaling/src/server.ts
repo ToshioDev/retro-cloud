@@ -66,16 +66,15 @@ function randomRoomId(): string {
 
 async function resolveGameServerImage(): Promise<string> {
   if (!docker) throw new Error("docker is not configured");
-  const exactMatch = await docker.listImages({ filters: JSON.stringify({ reference: [`${gameServerImage}:latest`] }) });
-  if (exactMatch.length > 0) return `${gameServerImage}:latest`;
   const images = await docker.listImages({ filters: JSON.stringify({ reference: [gameServerImage] }) });
   const newest = images
     .filter((image) => image.RepoTags && image.RepoTags.length > 0)
     .sort((a, b) => b.Created - a.Created)[0];
-  if (!newest?.RepoTags?.[0]) {
+  const tag = newest?.RepoTags?.find((repoTag) => !repoTag.endsWith(":latest")) ?? newest?.RepoTags?.[0];
+  if (!tag) {
     throw new Error(`no built image found for ${gameServerImage}; deploy the game-server service first`);
   }
-  return newest.RepoTags[0];
+  return tag;
 }
 
 async function spawnGameServer(game: string, romPath: string, owner: string): Promise<string> {
