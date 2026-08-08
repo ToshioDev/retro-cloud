@@ -212,8 +212,8 @@ export default function App() {
           playerNumberRef.current = number ?? 1;
           setPlayerNumber(number ?? 1);
         }
-        if (role === "player") {
-          const label = username ?? (peerId === myPeerIdRef.current ? authUsername : null) ?? "player";
+        if (role === "player" && peerId !== myPeerIdRef.current) {
+          const label = username ?? "player";
           setRoster((prev) => prev.some((p) => p.peerId === peerId) ? prev : [...prev, { peerId, playerNumber: number, username: label }]);
         }
         return;
@@ -543,16 +543,18 @@ export default function App() {
 
         <aside className="social-panel">
           <div className="social-block">
-            <p className="form-label">{t("players")}</p>
+            <p className="form-label">{t("players")} · {1 + roster.length}</p>
             <ul className="roster-list">
               <li className="roster-row">
-                <span className="roster-tag">P{playerNumber ?? 1}</span>
-                <span className="roster-name">{authUsername} ({t("you")})</span>
+                <span className="roster-avatar">{(authUsername ?? "?").slice(0, 1).toUpperCase()}</span>
+                <span className="roster-name">{authUsername} <span className="roster-you">({t("you")})</span></span>
+                {(playerNumber ?? 1) === 1 ? <span className="host-badge" title={t("host")}>👑</span> : <span className="roster-tag">P{playerNumber ?? 1}</span>}
               </li>
               {roster.map((entry) => (
                 <li key={entry.peerId} className="roster-row">
-                  <span className="roster-tag">P{entry.playerNumber}</span>
+                  <span className="roster-avatar">{entry.username.slice(0, 1).toUpperCase()}</span>
                   <span className="roster-name">{entry.username}</span>
+                  {entry.playerNumber === 1 ? <span className="host-badge" title={t("host")}>👑</span> : <span className="roster-tag">P{entry.playerNumber}</span>}
                 </li>
               ))}
             </ul>

@@ -63,6 +63,7 @@ const dict = {
   pressAKey: { en: "press a key…", es: "presiona una tecla…" },
 
   players: { en: "Players", es: "Jugadores" },
+  host: { en: "Room host", es: "Dueño de la sala" },
   you: { en: "you", es: "tú" },
   chat: { en: "Chat", es: "Chat" },
   sayHi: { en: "Say hi to the room.", es: "Saluda a la sala." },
