@@ -25,7 +25,6 @@ const peers = new Map<string, Peer>();
 const rooms = new Map<string, RoomState>();
 
 const gameServerImage = process.env.GAME_SERVER_IMAGE ?? "piepacker-clone-game-server";
-const dockerNetwork = process.env.DOCKER_NETWORK ?? "";
 const romsHostDir = process.env.ROMS_DIR ?? "";
 const romsLocalDir = "/roms";
 const signalingUrlForGameServer = process.env.GAME_SERVER_SIGNALING_URL ?? "ws://signaling:8080/signaling";
@@ -92,7 +91,7 @@ async function spawnGameServer(game: string, romPath: string, owner: string): Pr
     ],
     HostConfig: {
       Binds: [`${romsHostDir}:/roms:ro`],
-      NetworkMode: dockerNetwork || undefined,
+      NetworkMode: "host",
       AutoRemove: true,
     },
   });
