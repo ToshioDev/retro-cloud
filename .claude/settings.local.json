@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(docker exec *)",
-      "Bash(SIGNALING_PORT=8081 docker compose build web)"
+      "Bash(SIGNALING_PORT=8081 docker compose build web)",
+      "Bash(sshpass -p 'n8alphanet2*025*$.-' ssh root@23.138.88.186 'curl -s -X GET -H '\\\\''Authorization: Bearer 21|eud82rVapDwhgvFmIB7u6nfY3XpsTpZf9GlwGppv'\\\\'' '\\\\''http://localhost:8000/api/v1/deploy?help=1'\\\\'' ; echo; curl -s -H '\\\\''Authorization: Bearer 21|eud82rVapDwhgvFmIB7u6nfY3XpsTpZf9GlwGppv'\\\\'' http://localhost:8000/api/v1/private-keys')"
     ]
   }
 }

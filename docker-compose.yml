@@ -12,8 +12,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - signaling-data:/data
-    ports:
-      - "${SIGNALING_PORT:-8080}:8080"
+    expose:
+      - "8080"
     restart: unless-stopped
 
   web:
@@ -21,8 +21,8 @@ services:
       context: ./web
       args:
         VITE_SIGNALING_URL: ${WEB_SIGNALING_URL:-ws://localhost:${SIGNALING_PORT:-8080}/signaling}
-    ports:
-      - "${WEB_PORT:-5173}:5173"
+    expose:
+      - "5173"
     depends_on:
       - signaling
     restart: unless-stopped
