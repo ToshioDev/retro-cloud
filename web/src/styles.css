@@ -406,10 +406,10 @@ button:disabled { cursor: progress; opacity: .55; }
 .visibility-option.active { background: var(--signal-dim); border-color: var(--signal); color: #e4ddff; font-weight: 600; box-shadow: 0 0 10px var(--signal-dim); }
 
 .account-popover {
-  display: flex; flex-direction: column; gap: 12px; position: fixed; top: 20px; left: 92px; z-index: 9;
-  width: min(300px, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 12px; position: fixed; bottom: 20px; left: 96px; z-index: 9;
+  width: min(280px, calc(100vw - 110px)); max-height: 80vh; overflow-y: auto;
   background: var(--panel-solid); border: 1px solid var(--line-bright); border-radius: 20px; padding: 18px;
-  box-shadow: 0 24px 48px rgba(0,0,0,.6); backdrop-filter: blur(20px);
+  box-shadow: 0 24px 48px rgba(0,0,0,.7); backdrop-filter: blur(20px);
   animation: popIn .2s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .account-popover-head { display: flex; align-items: center; gap: 12px; }
@@ -423,6 +423,14 @@ button:disabled { cursor: progress; opacity: .55; }
 .soon-badge {
   margin-left: auto; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700;
   letter-spacing: .04em; text-transform: uppercase; background: var(--signal-dim); color: #e4ddff; flex-shrink: 0;
+}
+.account-popover-logout-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 10px 12px; border-radius: 10px;
+  background: rgba(255, 82, 82, 0.12); border: 1px solid rgba(255, 82, 82, 0.3); color: var(--ember); font-size: 13px; font-weight: 700;
+  transition: all .15s ease; cursor: pointer; margin-top: 4px;
+}
+.account-popover-logout-btn:hover {
+  background: var(--ember); color: #fff; border-color: var(--ember); box-shadow: 0 4px 14px rgba(255, 82, 82, 0.4);
 }
 .account-popover-logout { width: 100%; text-align: center; }
 
