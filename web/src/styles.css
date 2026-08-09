@@ -673,6 +673,14 @@ video { image-rendering: pixelated; position: relative; z-index: 1; display: blo
 .roster-row:hover .roster-make-host { opacity: 1; }
 .roster-make-host:hover { border-color: var(--signal); color: var(--signal); }
 
+/* Friend list (Social view) */
+.friend-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.friend-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 10px 12px; border-radius: 12px; background: rgba(30, 41, 59, 0.4); border: 1px solid transparent; }
+.friend-row:hover { background: var(--panel-raised); border-color: var(--line); }
+.friend-name { color: var(--paper); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.friend-status { color: var(--emerald); font-size: 11px; font-weight: 500; margin-left: 8px; }
+.roster-avatar.online { border: 2px solid var(--emerald); box-shadow: 0 0 10px var(--emerald); }
+
 .chat-log { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; margin: 8px 0 12px; padding-right: 4px; }
 .chat-empty { color: var(--mist); font-size: 13px; margin: 0; text-align: center; padding: 20px 0; }
 .chat-message { font-size: 13px; line-height: 1.45; padding: 6px 10px; border-radius: 10px; background: rgba(30, 41, 59, 0.4); }

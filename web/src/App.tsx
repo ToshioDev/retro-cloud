@@ -180,6 +180,11 @@ function IconRoomsNav() {
     <path d="M3 11l9-7 9 7" /><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9" />
   </svg>;
 }
+function IconFriends() {
+  return <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>;
+}
 
 function IconTv({ active }: { active: boolean }) {
   return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -391,7 +396,7 @@ export default function App() {
   const [roomOwner, setRoomOwner] = useState<string | null>(null);
   const [closingRoom, setClosingRoom] = useState(false);
   const [activeRooms, setActiveRooms] = useState<ActiveRoom[]>([]);
-  const [lobbyView, setLobbyView] = useState<"rooms" | "catalog" | "profile">("rooms");
+  const [lobbyView, setLobbyView] = useState<"rooms" | "catalog" | "profile" | "social">("rooms");
   const [roms, setRoms] = useState<RomEntry[]>([]);
   const [selectedRom, setSelectedRom] = useState<string | null>(null);
   const [catalogConsole, setCatalogConsole] = useState<string>("all");
@@ -1234,6 +1239,9 @@ export default function App() {
           <button className={lobbyView === "rooms" ? "side-rail-btn active" : "side-rail-btn"} onClick={() => setLobbyView("rooms")}>
             <IconRoomsNav /><span>{t("roomsTab")}</span>
           </button>
+          <button className={lobbyView === "social" ? "side-rail-btn active" : "side-rail-btn"} onClick={() => setLobbyView("social")}>
+            <IconFriends /><span>{t("socialTab")}</span>
+          </button>
         </div>
         <div className="side-rail-bottom">
           <LangToggle lang={lang} setLang={setLang} />
@@ -1794,6 +1802,82 @@ export default function App() {
             <p className="form-label">{t("language")}</p>
             <LangToggle lang={lang} setLang={setLang} />
           </div>
+        </div>
+      </section>
+    )}
+
+    {inLobby && lobbyView === "social" && (
+      <section className="lobby">
+        <div className="lobby-head">
+          <div>
+            <h2>{t("socialTitle")}</h2>
+            <p className="lobby-sub">{t("socialSub")}</p>
+          </div>
+          <button className="btn-ghost" onClick={() => void refreshFriends()}><IconRefresh /> {t("refresh")}</button>
+        </div>
+
+        {/* Add Friend */}
+        <div className="lobby-card">
+          <p className="form-label">{t("addFriend")}</p>
+          <div className="form-row">
+            <input
+              className="field"
+              value={addFriendInput}
+              onChange={(event) => setAddFriendInput(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") sendFriendRequest(); }}
+              placeholder={t("addFriendPlaceholder")}
+              aria-label={t("addFriendPlaceholder")}
+            />
+            <button className="btn-ghost" onClick={sendFriendRequest} disabled={!addFriendInput.trim()}>{t("add")}</button>
+          </div>
+          {friendError && <p className="form-error">{friendError}</p>}
+        </div>
+
+        {/* Pending Requests */}
+        {friends.incoming.length > 0 && (
+          <div className="lobby-card">
+            <p className="form-label">{t("pendingRequests")} · {friends.incoming.length}</p>
+            <ul className="friend-list">
+              {friends.incoming.map((name) => (
+                <li key={name} className="friend-row">
+                  <span className="roster-avatar small">{name.slice(0, 1).toUpperCase()}</span>
+                  <span className="friend-name">{name}</span>
+                  <button className="btn-primary friend-accept" onClick={() => respondFriendRequest(name, true)}>{t("accept")}</button>
+                  <button className="link-button" onClick={() => respondFriendRequest(name, false)}>{t("decline")}</button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Friends List */}
+        <div className="lobby-card">
+          <p className="form-label">{t("friends")} · {friends.friends.length}</p>
+          {friends.friends.length === 0 ? (
+            <p className="lobby-card-hint">{t("noFriendsYet")}</p>
+          ) : (
+            <ul className="friend-list">
+              {friends.friends.map((name) => {
+                const friendRoom = activeRooms.find((r) => r.owner === name && r.visibility !== "private");
+                const isOnline = !!friendRoom;
+                return (
+                  <li key={name} className="friend-row">
+                    <span className={`roster-avatar small ${isOnline ? "online" : ""}`}>{name.slice(0, 1).toUpperCase()}</span>
+                    <span className="friend-name">
+                      {name}
+                      {isOnline && <span className="friend-status">{t("playing")}</span>}
+                    </span>
+                    {isOnline && friendRoom && (
+                      <button className="btn-primary" onClick={() => connect(friendRoom.room, friendRoom.owner, friendRoom.game)}>
+                        {t("joinFriend")}
+                      </button>
+                    )}
+                    <button className="link-button" onClick={() => removeFriend(name)}>{t("remove")}</button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       </section>
     )}
