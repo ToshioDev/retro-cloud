@@ -7,6 +7,16 @@ type RosterEntry = { peerId: string; playerNumber: number; username: string };
 type ChatMessage = { username: string; playerNumber?: number; text: string; timestamp: number };
 type RomEntry = { file: string; game: "nes" | "snes" | "ps1"; size: number; owner: string | null };
 
+const UPLOAD_INFO: Record<string, { exts: string[]; label: string; maxMB: number }> = {
+  nes: { exts: [".nes"], label: ".nes", maxMB: 8 },
+  snes: { exts: [".sfc", ".smc"], label: ".sfc · .smc", maxMB: 8 },
+  ps1: { exts: [".bin", ".iso", ".img", ".pbp", ".chd"], label: ".bin · .iso · .img · .pbp · .chd", maxMB: 700 },
+};
+const EXTENSION_TO_GAME: Record<string, string> = {
+  ".nes": "nes", ".sfc": "snes", ".smc": "snes",
+  ".bin": "ps1", ".iso": "ps1", ".img": "ps1", ".pbp": "ps1", ".chd": "ps1",
+};
+
 const CONSOLES: { id: string; label: string; sub: string; active: boolean; hue: string }[] = [
   { id: "nes", label: "NES", sub: "8-bit", active: true, hue: "nes" },
   { id: "snes", label: "SNES", sub: "16-bit", active: true, hue: "snes" },
@@ -23,7 +33,7 @@ const apiBase = signalingUrl.replace(/^ws/, "http").replace(/\/signaling\/?$/, "
 const roomsUrl = `${apiBase}/rooms`;
 const romsUrl = `${apiBase}/roms`;
 const defaultRoom = import.meta.env.VITE_ROOM ?? "";
-type ActiveRoom = { room: string; peerCount: number; owner: string | null; visibility?: "public" | "private" };
+type ActiveRoom = { room: string; peerCount: number; owner: string | null; visibility?: "public" | "private"; game?: string | null; file?: string | null };
 const buttons: Button[] = ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "L", "R", "START", "SELECT"];
 const defaultKeyBindings: Record<Button, string> = {
   UP: "ArrowUp", DOWN: "ArrowDown", LEFT: "ArrowLeft", RIGHT: "ArrowRight",
@@ -191,6 +201,7 @@ export default function App() {
   const [selectedRom, setSelectedRom] = useState<string | null>(null);
   const [catalogConsole, setCatalogConsole] = useState<string>("all");
   const [catalogSearch, setCatalogSearch] = useState("");
+  const [gameModalRom, setGameModalRom] = useState<RomEntry | null>(null);
   const [ps1BiosReady, setPs1BiosReady] = useState<boolean | null>(null);
   const [biosUploading, setBiosUploading] = useState(false);
   const [biosError, setBiosError] = useState("");
@@ -255,6 +266,17 @@ export default function App() {
     void audioCtxRef.current?.close();
   }, []);
 
+  async function refreshRooms() {
+    try {
+      const response = await fetch(roomsUrl, { headers: authToken ? { authorization: `Bearer ${authToken}` } : {} });
+      const data = await response.json() as { rooms: ActiveRoom[] };
+      setActiveRooms(data.rooms);
+      if (!roomTouched && data.rooms.length > 0) setRoom(data.rooms[0].room);
+    } catch {
+      setActiveRooms([]);
+    }
+  }
+
   useEffect(() => {
     if (status !== "Disconnected") return;
     let cancelled = false;
@@ -298,6 +320,17 @@ export default function App() {
 
   async function uploadRom(file: File) {
     if (!authToken) return;
+    const ext = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
+    const game = EXTENSION_TO_GAME[ext];
+    const info = game ? UPLOAD_INFO[game] : null;
+    if (!info) {
+      setUploadError(`unsupported file type: ${ext}`);
+      return;
+    }
+    if (file.size > info.maxMB * 1024 * 1024) {
+      setUploadError(`file is too big — ${info.maxMB} MB max for this console`);
+      return;
+    }
     setUploading(true);
     setUploadError("");
     try {
@@ -616,15 +649,16 @@ export default function App() {
     setAuthUsername(null);
   }
 
-  async function createRoom() {
-    if (!authToken || !selectedRom) return;
+  async function createRoom(file?: string) {
+    const targetFile = file ?? selectedRom;
+    if (!authToken || !targetFile) return;
     setCreating(true);
     setCreateError("");
     try {
       const response = await fetch(roomsUrl, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ file: selectedRom, visibility: newRoomVisibility }),
+        body: JSON.stringify({ file: targetFile, visibility: newRoomVisibility }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
@@ -967,7 +1001,7 @@ export default function App() {
             <h2>{t("roomsInSession")}</h2>
             <p className="lobby-sub">{t("lobbySub")}</p>
           </div>
-          <button className="btn-ghost" onClick={() => { void fetch(roomsUrl, { headers: authToken ? { authorization: `Bearer ${authToken}` } : {} }).then((r) => r.json()).then((d) => setActiveRooms(d.rooms)).catch(() => setActiveRooms([])); }}><IconRefresh /> {t("refresh")}</button>
+          <button className="btn-ghost" onClick={() => void refreshRooms()}><IconRefresh /> {t("refresh")}</button>
         </div>
 
         <div className="stat-strip">
@@ -1031,141 +1065,179 @@ export default function App() {
 
     {inLobby && lobbyView === "catalog" && (
       <section className="lobby">
-        <div className="lobby-head">
-          <div>
-            <h2>{t("catalogTitle")}</h2>
-            <p className="lobby-sub">{t("catalogSub")}</p>
+        <div className="catalog-toolbar">
+          <div className="catalog-search-wrap">
+            <svg className="catalog-search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            <input
+              className="field catalog-search"
+              value={catalogSearch}
+              onChange={(event) => setCatalogSearch(event.target.value)}
+              placeholder={t("searchGames")}
+              aria-label={t("searchGames")}
+            />
           </div>
-        </div>
-
-        <p className="form-label showcase-label">{t("byog")}</p>
-        <div className="console-grid">
-          {CONSOLES.map((c) => (
-            <button
-              key={c.id}
-              className={`console-tile console-${c.hue}${catalogConsole === c.id ? " active" : ""}${!c.active ? " locked" : ""}`}
-              onClick={() => c.active && setCatalogConsole(catalogConsole === c.id ? "all" : c.id)}
-              disabled={!c.active}
-            >
-              {!c.active && <span className="console-tile-lock"><IconLock /></span>}
-              <span className="console-tile-label">{c.label}</span>
-              <span className="console-tile-sub">{c.id === "ps1" && ps1BiosReady === false ? t("biosMissing") : c.sub}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="lobby-split">
-          <div className="lobby-games">
-            <div className="showcase-label-row">
-              <p className="form-label showcase-label">{t("chooseRom")}</p>
-              <input
-                className="field catalog-search"
-                value={catalogSearch}
-                onChange={(event) => setCatalogSearch(event.target.value)}
-                placeholder={t("searchGames")}
-                aria-label={t("searchGames")}
-              />
-            </div>
-            {roms.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-glyph">▢</div>
-                <p>{t("noRomsUploaded")}</p>
-                <span>{t("uploadFromPanel")}</span>
-              </div>
-            ) : (
-              <div className="catalog">
-                {(["snes", "nes", "ps1"] as const).map((consoleName) => {
-                  if (catalogConsole !== "all" && catalogConsole !== consoleName) return null;
-                  const search = catalogSearch.trim().toLowerCase();
-                  const consoleRoms = roms.filter((rom) => rom.game === consoleName && (!search || rom.file.toLowerCase().includes(search)));
-                  if (consoleRoms.length === 0) return null;
-                  return (
-                    <div key={consoleName} className="catalog-row">
-                      <p className="catalog-row-title">{consoleName.toUpperCase()} <span className="catalog-row-count">{consoleRoms.length}</span></p>
-                      <div className="catalog-track">
-                        {consoleRoms.map((rom) => (
-                          <div
-                            key={rom.file}
-                            role="button"
-                            tabIndex={0}
-                            className={selectedRom === rom.file ? "game-card active" : "game-card"}
-                            onClick={() => setSelectedRom(rom.file)}
-                            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedRom(rom.file); }}
-                          >
-                            {rom.owner === authUsername && (
-                              <button
-                                className="game-card-delete"
-                                aria-label={t("deleteRom")}
-                                onClick={(event) => { event.stopPropagation(); void deleteRom(rom.file); }}
-                              >
-                                <IconClose />
-                              </button>
-                            )}
-                            <div className="game-card-cover">
-                              <span className="game-card-glyph">{consoleName === "nes" ? "▮▮" : consoleName === "snes" ? "▮▮▮" : "◉"}</span>
-                            </div>
-                            <span className="game-card-label">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</span>
-                            <span className="game-card-meta">{(rom.size / 1024 / 1024).toFixed(1)} MB{!rom.owner && ` · ${t("shared")}`}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <aside className="lobby-side">
-            <div className="lobby-card">
-              <p className="form-label">{t("hostThisRom")}</p>
-              <div className="visibility-toggle" role="group" aria-label={t("visibility")}>
-                <button className={newRoomVisibility === "public" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("public")}><IconGlobe /> {t("public")}</button>
-                <button className={newRoomVisibility === "private" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("private")}><IconLock /> {t("private")}</button>
-              </div>
-              <span className="lobby-card-hint">{newRoomVisibility === "public" ? t("publicHint") : t("privateHint")}</span>
-              <button className="btn-primary lobby-card-cta" onClick={createRoom} disabled={creating || !selectedRom}>
-                {creating ? t("starting") : selectedRom ? `${t("createRoom")} · ${selectedRom}` : t("selectRomFirst")}
+          <div className="pill-row">
+            <button className={catalogConsole === "all" ? "pill active" : "pill"} onClick={() => setCatalogConsole("all")}>{t("allConsoles")}</button>
+            {CONSOLES.map((c) => (
+              <button
+                key={c.id}
+                className={`pill${catalogConsole === c.id ? " active" : ""}${!c.active ? " locked" : ""}`}
+                onClick={() => c.active && setCatalogConsole(catalogConsole === c.id ? "all" : c.id)}
+                disabled={!c.active}
+              >
+                {!c.active && <IconLock />} {c.label}
               </button>
-              {createError && <p className="form-error">{createError}</p>}
-            </div>
-
-            <div className="lobby-card">
-              <p className="form-label">{t("uploadRom")}</p>
-              <span className="lobby-card-hint">{t("uploadHint")}</span>
-              <label className="upload-drop">
-                <input
-                  type="file"
-                  accept=".nes,.sfc,.smc,.bin,.iso,.img,.pbp,.chd"
-                  disabled={uploading || !authToken}
-                  onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadRom(file); event.target.value = ""; }}
-                  aria-label={t("uploadRom")}
-                />
-                <span>{uploading ? t("uploading") : t("chooseFileDrop")}</span>
-              </label>
-              {uploadError && <p className="form-error">{uploadError}</p>}
-            </div>
-
-            {ps1BiosReady === false && (
-              <div className="lobby-card">
-                <p className="form-label">{t("uploadBios")}</p>
-                <span className="lobby-card-hint">{t("uploadBiosHint")}</span>
-                <label className="upload-drop">
-                  <input
-                    type="file"
-                    accept=".bin"
-                    disabled={biosUploading || !authToken}
-                    onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadBios(file); event.target.value = ""; }}
-                    aria-label={t("uploadBios")}
-                  />
-                  <span>{biosUploading ? t("uploading") : t("chooseFileDrop")}</span>
-                </label>
-                {biosError && <p className="form-error">{biosError}</p>}
-              </div>
-            )}
-          </aside>
+            ))}
+          </div>
         </div>
+
+        {roms.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-glyph">▢</div>
+            <p>{t("noRomsUploaded")}</p>
+            <span>{t("uploadFromPanel")}</span>
+          </div>
+        ) : (() => {
+          const search = catalogSearch.trim().toLowerCase();
+          const visible = roms.filter((rom) =>
+            (catalogConsole === "all" || rom.game === catalogConsole) &&
+            (!search || rom.file.toLowerCase().includes(search)));
+          if (visible.length === 0) {
+            return <div className="empty-state"><div className="empty-glyph">▢</div><p>{t("noResults")}</p></div>;
+          }
+          return (
+            <div className="poster-grid">
+              {visible.map((rom) => {
+                const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
+                return (
+                  <div
+                    key={rom.file}
+                    role="button"
+                    tabIndex={0}
+                    className="poster-card"
+                    onClick={() => { setSelectedRom(rom.file); setGameModalRom(rom); }}
+                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { setSelectedRom(rom.file); setGameModalRom(rom); } }}
+                  >
+                    {rom.owner === authUsername && (
+                      <button
+                        className="game-card-delete"
+                        aria-label={t("deleteRom")}
+                        onClick={(event) => { event.stopPropagation(); void deleteRom(rom.file); }}
+                      >
+                        <IconClose />
+                      </button>
+                    )}
+                    <div className={`poster-cover console-${rom.game}`}>
+                      {roomsForGame.length > 0 && (
+                        <span className="poster-live-badge"><span className="live-pulse" /> {roomsForGame.length}</span>
+                      )}
+                      <span className="poster-glyph">{rom.game === "nes" ? "▮▮" : rom.game === "snes" ? "▮▮▮" : "◉"}</span>
+                    </div>
+                    <span className="poster-label">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</span>
+                    <div className="poster-meta-row">
+                      <span className="poster-tag">{rom.game.toUpperCase()}</span>
+                      <span className="poster-meta">{(rom.size / 1024 / 1024).toFixed(1)} MB</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+
+        <div className="lobby-card catalog-upload-card">
+          <p className="form-label">{t("uploadRom")}</p>
+          <span className="lobby-card-hint">
+            {catalogConsole !== "all" && UPLOAD_INFO[catalogConsole]
+              ? `${UPLOAD_INFO[catalogConsole].label}, up to ${UPLOAD_INFO[catalogConsole].maxMB} MB`
+              : t("uploadHint")}
+          </span>
+          <label className="upload-drop">
+            <input
+              type="file"
+              accept={catalogConsole !== "all" && UPLOAD_INFO[catalogConsole] ? UPLOAD_INFO[catalogConsole].exts.join(",") : ".nes,.sfc,.smc,.bin,.iso,.img,.pbp,.chd"}
+              disabled={uploading || !authToken}
+              onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadRom(file); event.target.value = ""; }}
+              aria-label={t("uploadRom")}
+            />
+            <span>{uploading ? t("uploading") : t("chooseFileDrop")}</span>
+          </label>
+          {uploadError && <p className="form-error">{uploadError}</p>}
+        </div>
+
+        {ps1BiosReady === false && (
+          <div className="lobby-card catalog-upload-card">
+            <p className="form-label">{t("uploadBios")}</p>
+            <span className="lobby-card-hint">{t("uploadBiosHint")}</span>
+            <label className="upload-drop">
+              <input
+                type="file"
+                accept=".bin"
+                disabled={biosUploading || !authToken}
+                onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadBios(file); event.target.value = ""; }}
+                aria-label={t("uploadBios")}
+              />
+              <span>{biosUploading ? t("uploading") : t("chooseFileDrop")}</span>
+            </label>
+            {biosError && <p className="form-error">{biosError}</p>}
+          </div>
+        )}
       </section>
+    )}
+
+    {inLobby && gameModalRom && (
+      <div className="settings-backdrop game-modal-backdrop" onClick={() => setGameModalRom(null)}>
+        <div className="game-modal" onClick={(event) => event.stopPropagation()}>
+          <div className={`game-modal-hero console-${gameModalRom.game}`}>
+            <button className="icon-button game-modal-close" aria-label="Close" onClick={() => setGameModalRom(null)}><IconClose /></button>
+            <span className="game-modal-glyph">{gameModalRom.game === "nes" ? "▮▮" : gameModalRom.game === "snes" ? "▮▮▮" : "◉"}</span>
+            <h2 className="game-modal-title">{gameModalRom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</h2>
+            <span className="poster-tag game-modal-tag">{gameModalRom.game.toUpperCase()}</span>
+          </div>
+
+          <div className="game-modal-body">
+            <div className="visibility-toggle" role="group" aria-label={t("visibility")}>
+              <button className={newRoomVisibility === "public" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("public")}><IconGlobe /> {t("public")}</button>
+              <button className={newRoomVisibility === "private" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("private")}><IconLock /> {t("private")}</button>
+            </div>
+            <button
+              className="btn-primary game-modal-create"
+              onClick={() => { setSelectedRom(gameModalRom.file); void createRoom(gameModalRom.file); }}
+              disabled={creating}
+            >
+              {creating ? t("starting") : t("createNewRoom")}
+            </button>
+            {createError && <p className="form-error">{createError}</p>}
+
+            <div className="game-modal-rooms-head">
+              <p className="form-label showcase-label">{t("publicRooms")}</p>
+              <button className="icon-button game-modal-refresh" aria-label={t("refresh")} onClick={() => void refreshRooms()}><IconRefresh /></button>
+            </div>
+
+            {(() => {
+              const rooms = activeRooms.filter((r) => r.file === gameModalRom.file && r.visibility !== "private");
+              if (rooms.length === 0) {
+                return <p className="lobby-card-hint game-modal-empty">{t("noPublicRoomsForGame")}</p>;
+              }
+              return (
+                <ul className="room-list">
+                  {rooms.map((entry) => (
+                    <li key={entry.room} className="room-row" role="button" tabIndex={0} onClick={() => { setGameModalRom(null); void connect(entry.room, entry.owner); }}>
+                      <span className="live-pulse" />
+                      <span className="roster-avatar small">{(entry.owner ?? "?").slice(0, 1).toUpperCase()}</span>
+                      <span className="room-row-info">
+                        <span className="room-row-title">{entry.room}</span>
+                        <span className="room-row-sub">{entry.owner ? `${t("hostedBy")} ${entry.owner}` : t("unowned")} · {entry.peerCount} {t("playersCount")}</span>
+                      </span>
+                      <span className="room-row-cta">{t("joinRoom")}</span>
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}
+          </div>
+        </div>
+      </div>
     )}
 
     {!inLobby && <>

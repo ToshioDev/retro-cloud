@@ -35,6 +35,7 @@ const docker = romsHostDir ? new Docker() : null;
 const managedRooms = new Map<string, { containerId: string }>();
 const roomOwners = new Map<string, string>();
 const roomVisibility = new Map<string, "public" | "private">();
+const roomFiles = new Map<string, { game: string; file: string }>();
 const extensionToGame: Record<string, string> = {
   ".nes": "nes",
   ".sfc": "snes",
@@ -130,7 +131,7 @@ async function resolveGameServerImage(): Promise<string> {
   return tag;
 }
 
-async function spawnGameServer(game: string, romPath: string, owner: string, visibility: "public" | "private"): Promise<string> {
+async function spawnGameServer(game: string, romPath: string, owner: string, visibility: "public" | "private", file: string): Promise<string> {
   if (!docker) throw new Error("room creation is disabled: ROMS_DIR is not configured on the signaling service");
   if (game === "ps1" && !(await hasPs1Bios())) {
     throw new Error("PS1 needs a BIOS file uploaded first (see the BIOS section in your profile)");
@@ -159,6 +160,7 @@ async function spawnGameServer(game: string, romPath: string, owner: string, vis
   managedRooms.set(room, { containerId: container.id });
   roomOwners.set(room, owner);
   roomVisibility.set(room, visibility);
+  roomFiles.set(room, { game, file });
   console.log(`[SIGNALING] spawned game-server for room ${room} (${game}, ${romPath}, owner=${owner}, ${visibility})`);
   return room;
 }
@@ -169,6 +171,7 @@ async function teardownRoom(room: string) {
   managedRooms.delete(room);
   roomOwners.delete(room);
   roomVisibility.delete(room);
+  roomFiles.delete(room);
   rooms.delete(room);
   try {
     await docker.getContainer(managed.containerId).stop();
@@ -236,6 +239,8 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
       peerCount: peerCounts.get(room) ?? 0,
       owner: roomOwners.get(room) ?? null,
       visibility: roomVisibility.get(room) ?? "public",
+      game: roomFiles.get(room)?.game ?? null,
+      file: roomFiles.get(room)?.file ?? null,
     }));
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({ rooms: activeRooms }));
@@ -526,7 +531,7 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
         if (!rom) throw new Error("no ROMs available: upload one first");
         const visibility = body.visibility === "private" ? "private" : "public";
         const romPath = `/roms/${rom.file}`;
-        const room = await spawnGameServer(rom.game, romPath, username, visibility);
+        const room = await spawnGameServer(rom.game, romPath, username, visibility, rom.file);
         response.writeHead(201, { "content-type": "application/json" });
         response.end(JSON.stringify({ room, game: rom.game, romPath, owner: username, visibility }));
       })
