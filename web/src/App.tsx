@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { type Lang, loadLang, translate } from "./i18n";
 
 type SignalMessage = { type: string; room?: string; from?: string; payload?: any };
@@ -35,36 +35,40 @@ const romsUrl = `${apiBase}/roms`;
 const defaultRoom = import.meta.env.VITE_ROOM ?? "";
 type ActiveRoom = { room: string; peerCount: number; owner: string | null; visibility?: "public" | "private"; game?: string | null; file?: string | null };
 const buttons: Button[] = ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L", "R", "L2", "R2", "START", "SELECT"];
-// X/Y (SNES/PS1 top+left face buttons) and L2/R2 (PS1 shoulder triggers) only matter for consoles whose
-// cores actually read them — NES/SNES cores simply never poll those input IDs, so keeping them bound is
-// harmless there and means switching games never needs a different keymap.
+// Each console's real controller only has some of these — NES has no X/Y/L/R/L2/R2, SNES has no L2/R2 —
+// so bindings and the Settings > Controls list are scoped per console instead of one list of everything.
+const CONSOLE_BUTTONS: Record<string, Button[]> = {
+  nes: ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "START", "SELECT"],
+  snes: ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L", "R", "START", "SELECT"],
+  ps1: ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L", "R", "L2", "R2", "START", "SELECT"],
+};
 const defaultKeyBindings: Record<Button, string> = {
   UP: "ArrowUp", DOWN: "ArrowDown", LEFT: "ArrowLeft", RIGHT: "ArrowRight",
   A: "z", B: "x", X: "a", Y: "s", L: "q", R: "w", L2: "1", R2: "2", START: "Enter", SELECT: "Shift",
 };
 
-function loadKeyBindings(): Record<Button, string> {
+// Bindings are stored per console ({ nes: {...}, snes: {...}, ps1: {...} }, each a partial override of the
+// defaults above) so rebinding a key for one console never touches another's — the room you're in decides
+// which map applies.
+function loadKeyBindingsByGame(): Record<string, Partial<Record<Button, string>>> {
   try {
-    const stored = JSON.parse(localStorage.getItem("rc_keybindings") ?? "{}");
-    return { ...defaultKeyBindings, ...stored };
+    return JSON.parse(localStorage.getItem("rc_keybindings") ?? "{}");
   } catch {
-    return { ...defaultKeyBindings };
+    return {};
   }
 }
 
 // Standard Gamepad API mapping (https://w3c.github.io/gamepad/#remapping): 0=A 1=B 2=X 3=Y 4=LB 5=RB
-// 6=LT 7=RT 8=Select 9=Start 12-15=D-pad. Works the same for every console we stream — the emulator side
-// only sees button names over the data channel, so a bound gamepad plays PS1/NES/SNES rooms identically.
+// 6=LT 7=RT 8=Select 9=Start 12-15=D-pad.
 const defaultGamepadBindings: Record<Button, number> = {
   UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15, A: 0, B: 1, X: 2, Y: 3, L: 4, R: 5, L2: 6, R2: 7, START: 9, SELECT: 8,
 };
 
-function loadGamepadBindings(): Record<Button, number> {
+function loadGamepadBindingsByGame(): Record<string, Partial<Record<Button, number>>> {
   try {
-    const stored = JSON.parse(localStorage.getItem("rc_gamepad_bindings") ?? "{}");
-    return { ...defaultGamepadBindings, ...stored };
+    return JSON.parse(localStorage.getItem("rc_gamepad_bindings") ?? "{}");
   } catch {
-    return { ...defaultGamepadBindings };
+    return {};
   }
 }
 
@@ -249,14 +253,25 @@ export default function App() {
   const [dragActive, setDragActive] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [playerNumber, setPlayerNumber] = useState<number | null>(null);
-  const [keyBindings, setKeyBindings] = useState<Record<Button, string>>(loadKeyBindings);
+  const [currentGame, setCurrentGame] = useState<string | null>(null);
+  const [keyBindingsByGame, setKeyBindingsByGame] = useState<Record<string, Partial<Record<Button, string>>>>(loadKeyBindingsByGame);
   const [rebinding, setRebinding] = useState<Button | null>(null);
-  const [gamepadBindings, setGamepadBindings] = useState<Record<Button, number>>(loadGamepadBindings);
+  const [gamepadBindingsByGame, setGamepadBindingsByGame] = useState<Record<string, Partial<Record<Button, number>>>>(loadGamepadBindingsByGame);
   const [rebindingGamepad, setRebindingGamepad] = useState<Button | null>(null);
   const [gamepadConnected, setGamepadConnected] = useState(false);
   const gamepadHeldRef = useRef<Set<Button>>(new Set());
-  const gamepadBindingsRef = useRef(gamepadBindings);
   const rebindingGamepadRef = useRef<Button | null>(null);
+  const activeConsole = currentGame ?? "ps1";
+  const activeConsoleButtons = CONSOLE_BUTTONS[activeConsole] ?? buttons;
+  const keyBindings = useMemo<Record<Button, string>>(
+    () => ({ ...defaultKeyBindings, ...(keyBindingsByGame[activeConsole] ?? {}) }),
+    [keyBindingsByGame, activeConsole],
+  );
+  const gamepadBindings = useMemo<Record<Button, number>>(
+    () => ({ ...defaultGamepadBindings, ...(gamepadBindingsByGame[activeConsole] ?? {}) }),
+    [gamepadBindingsByGame, activeConsole],
+  );
+  const gamepadBindingsRef = useRef(gamepadBindings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"display" | "audio" | "controls">("display");
   // Always start each session on "Fit" rather than remembering a pixel-exact zoom: a stuck 1x/2x/3x choice
@@ -275,6 +290,10 @@ export default function App() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
   const [intrinsicSize, setIntrinsicSize] = useState<{ w: number; h: number } | null>(null);
+  const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
+  const [canvasZoom, setCanvasZoom] = useState(1);
+  const [draggingCanvas, setDraggingCanvas] = useState(false);
+  const canvasDragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const [roster, setRoster] = useState<RosterEntry[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
@@ -301,6 +320,7 @@ export default function App() {
   const reconnectTimeoutRef = useRef<number | null>(null);
   const lastRoomRef = useRef<string>("");
   const lastOwnerRef = useRef<string | null>(null);
+  const lastGameRef = useRef<string | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
 
   useEffect(() => () => {
@@ -446,17 +466,20 @@ export default function App() {
     }
   }
 
-  async function connect(targetRoom?: string, owner?: string | null) {
+  async function connect(targetRoom?: string, owner?: string | null, game?: string | null) {
     if (socketRef.current) return;
     const joinRoom = (targetRoom ?? room).trim() || "local";
     const joinOwner = owner ?? lastOwnerRef.current ?? activeRooms.find((r) => r.room === joinRoom)?.owner ?? null;
+    const joinGame = game ?? lastGameRef.current ?? activeRooms.find((r) => r.room === joinRoom)?.game ?? null;
     lastRoomRef.current = joinRoom;
     lastOwnerRef.current = joinOwner;
+    lastGameRef.current = joinGame;
     shouldReconnectRef.current = true;
     if (reconnectTimeoutRef.current) { window.clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
     setRoom(joinRoom);
     setRoomTouched(true);
     setRoomOwner(joinOwner);
+    setCurrentGame(joinGame);
     setStatus("Connecting");
     myPeerIdRef.current = null;
     hostPeerIdRef.current = null;
@@ -464,6 +487,8 @@ export default function App() {
     setMobilePanelOpen(false);
     setRoster([]);
     setChatMessages([]);
+    setCanvasOffset({ x: 0, y: 0 });
+    setCanvasZoom(1);
     const socket = new WebSocket(signalingUrl);
     socketRef.current = socket;
     const peer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
@@ -580,7 +605,7 @@ export default function App() {
         setStatus("Connecting");
         const delay = Math.min(1000 * 2 ** (reconnectAttemptsRef.current - 1), 15000);
         reconnectTimeoutRef.current = window.setTimeout(() => {
-          void connect(lastRoomRef.current, lastOwnerRef.current);
+          void connect(lastRoomRef.current, lastOwnerRef.current, lastGameRef.current);
         }, delay);
       } else {
         setReconnecting(false);
@@ -726,7 +751,7 @@ export default function App() {
         throw new Error(body.error ?? `failed to create room (${response.status})`);
       }
       const data = await response.json() as { room: string };
-      await connect(data.room, authUsername);
+      await connect(data.room, authUsername, roms.find((r) => r.file === targetFile)?.game ?? null);
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : "failed to create room");
     } finally {
@@ -819,6 +844,26 @@ export default function App() {
     }
   }
 
+  function onCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 && event.pointerType === "mouse") return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDraggingCanvas(true);
+    canvasDragRef.current = { startX: event.clientX, startY: event.clientY, originX: canvasOffset.x, originY: canvasOffset.y };
+  }
+  function onCanvasPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = canvasDragRef.current;
+    if (!drag) return;
+    setCanvasOffset({ x: drag.originX + (event.clientX - drag.startX), y: drag.originY + (event.clientY - drag.startY) });
+  }
+  function onCanvasPointerUp() {
+    canvasDragRef.current = null;
+    setDraggingCanvas(false);
+  }
+  function resetCanvasPosition() {
+    setCanvasOffset({ x: 0, y: 0 });
+    setCanvasZoom(1);
+  }
+
   function sendChat() {
     const text = chatInput.trim();
     if (!text || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
@@ -848,14 +893,14 @@ export default function App() {
     if (!rebinding) return;
     const capture = (event: KeyboardEvent) => {
       event.preventDefault();
-      const next = { ...keyBindings, [rebinding]: event.key };
-      setKeyBindings(next);
+      const next = { ...keyBindingsByGame, [activeConsole]: { ...(keyBindingsByGame[activeConsole] ?? {}), [rebinding]: event.key } };
+      setKeyBindingsByGame(next);
       localStorage.setItem("rc_keybindings", JSON.stringify(next));
       setRebinding(null);
     };
     window.addEventListener("keydown", capture, { once: true });
     return () => window.removeEventListener("keydown", capture);
-  }, [rebinding, keyBindings]);
+  }, [rebinding, keyBindingsByGame, activeConsole]);
 
   useEffect(() => {
     if (rebinding) return;
@@ -914,8 +959,8 @@ export default function App() {
         if (rebindTarget) {
           const pressedIndex = pad.buttons.findIndex((b) => b.pressed || b.value > 0.5);
           if (pressedIndex >= 0) {
-            const next = { ...gamepadBindingsRef.current, [rebindTarget]: pressedIndex };
-            setGamepadBindings(next);
+            const next = { ...gamepadBindingsByGame, [activeConsole]: { ...(gamepadBindingsByGame[activeConsole] ?? {}), [rebindTarget]: pressedIndex } };
+            setGamepadBindingsByGame(next);
             localStorage.setItem("rc_gamepad_bindings", JSON.stringify(next));
             setRebindingGamepad(null);
           }
@@ -936,7 +981,7 @@ export default function App() {
     };
     raf = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(raf);
-  }, [status]);
+  }, [status, activeConsole, gamepadBindingsByGame]);
 
   const inLobby = status === "Disconnected";
 
@@ -1142,7 +1187,7 @@ export default function App() {
         ) : (
           <div className="room-grid">
             {activeRooms.map((entry) => (
-              <button key={entry.room} className="room-card" onClick={() => connect(entry.room, entry.owner)}>
+              <button key={entry.room} className="room-card" onClick={() => connect(entry.room, entry.owner, entry.game)}>
                 <div className="room-card-top">
                   <span className="live-pulse" />
                   <span className="room-card-id">{entry.room}</span>
@@ -1353,7 +1398,7 @@ export default function App() {
               return (
                 <ul className="room-list">
                   {rooms.map((entry) => (
-                    <li key={entry.room} className="room-row" role="button" tabIndex={0} onClick={() => { setGameModalRom(null); void connect(entry.room, entry.owner); }}>
+                    <li key={entry.room} className="room-row" role="button" tabIndex={0} onClick={() => { setGameModalRom(null); void connect(entry.room, entry.owner, entry.game); }}>
                       <span className="live-pulse" />
                       <span className="roster-avatar small">{(entry.owner ?? "?").slice(0, 1).toUpperCase()}</span>
                       <span className="room-row-info">
@@ -1427,21 +1472,30 @@ export default function App() {
             </button>
           </div>
           <div className={`stage stage-${scale === "fit" ? "fit" : "fixed"}`}>
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              controls={false}
-              disablePictureInPicture
-              controlsList="nodownload nofullscreen noremoteplayback noplaybackrate"
-              onContextMenu={(event) => event.preventDefault()}
-              onLoadedMetadata={() => { if (videoRef.current) setIntrinsicSize({ w: videoRef.current.videoWidth, h: videoRef.current.videoHeight }); }}
-              style={{
-                WebkitTouchCallout: "none" as any,
-                WebkitUserSelect: "none" as any,
-                ...(scale !== "fit" && intrinsicSize ? { width: intrinsicSize.w * Number(scale), height: "auto" } : {}),
-              }}
-            />
+            <div
+              className={draggingCanvas ? "stage-canvas dragging" : "stage-canvas"}
+              style={{ transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px) scale(${canvasZoom})` }}
+              onPointerDown={onCanvasPointerDown}
+              onPointerMove={onCanvasPointerMove}
+              onPointerUp={onCanvasPointerUp}
+              onPointerCancel={onCanvasPointerUp}
+            >
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                controls={false}
+                disablePictureInPicture
+                controlsList="nodownload nofullscreen noremoteplayback noplaybackrate"
+                onContextMenu={(event) => event.preventDefault()}
+                onLoadedMetadata={() => { if (videoRef.current) setIntrinsicSize({ w: videoRef.current.videoWidth, h: videoRef.current.videoHeight }); }}
+                style={{
+                  WebkitTouchCallout: "none" as any,
+                  WebkitUserSelect: "none" as any,
+                  ...(scale !== "fit" && intrinsicSize ? { width: intrinsicSize.w * Number(scale), height: "auto" } : {}),
+                }}
+              />
+            </div>
             {mediaState !== "Receiving media" && <div className="placeholder">{translate(lang, (mediaKeys[mediaState] as any) ?? "waitingForGameServer")}</div>}
           </div>
           <TouchControls sendInput={sendInput} layout={touchLayout} size={touchSize} />
@@ -1529,6 +1583,22 @@ export default function App() {
                     <button key={value} className={scale === value ? "scale-option active" : "scale-option"} onClick={() => setScale(value)}>{label}</button>
                   ))}
                 </div>
+
+                <p className="settings-label" style={{ marginTop: 14 }}>{t("screenPosition")}</p>
+                <span className="lobby-card-hint">{t("screenPositionHint")}</span>
+                <div className="volume-row">
+                  <span className="volume-value" style={{ minWidth: 40 }}>{Math.round(canvasZoom * 100)}%</span>
+                  <input
+                    className="volume-slider"
+                    type="range"
+                    min={50}
+                    max={200}
+                    value={Math.round(canvasZoom * 100)}
+                    onChange={(event) => setCanvasZoom(Number(event.target.value) / 100)}
+                    aria-label={t("zoom")}
+                  />
+                  <button className="btn-ghost" onClick={resetCanvasPosition}>{t("recenter")}</button>
+                </div>
               </div>
             )}
 
@@ -1565,11 +1635,15 @@ export default function App() {
               </div>
             )}
 
+            {settingsTab === "controls" && (
+              <p className="console-detected">{t("controlsForConsole")} <span className="console-detected-name">{CONSOLES.find((c) => c.id === activeConsole)?.label ?? activeConsole.toUpperCase()}</span></p>
+            )}
+
             {settingsTab === "controls" && !isTouchDevice && (
               <div className="settings-section">
                 <p className="settings-label">{t("keyboardBindings")} · P{playerNumber ?? 1}</p>
                 <ul className="keybind-list">
-                  {buttons.map((button) => (
+                  {activeConsoleButtons.map((button) => (
                     <li key={button} className="keybind-row">
                       <span className="keybind-name">{button}</span>
                       <button className="keybind-key" onClick={() => rebindKey(button)}>
@@ -1589,7 +1663,7 @@ export default function App() {
                 </p>
                 {gamepadConnected ? (
                   <ul className="keybind-list">
-                    {buttons.map((button) => (
+                    {activeConsoleButtons.map((button) => (
                       <li key={button} className="keybind-row">
                         <span className="keybind-name">{button}</span>
                         <button className="keybind-key" onClick={() => setRebindingGamepad(button)}>

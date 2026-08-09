@@ -380,8 +380,12 @@ button:disabled { cursor: progress; opacity: .55; }
    "contain" in a wide viewport — fills the stage edge-to-edge vertically with no letterboxing at all. This
    padding keeps the picture from ever touching the floating top HUD, on any aspect ratio. */
 .stage-fit { width: 100%; height: 100%; padding: 20px; }
-.stage-fit video { width: 100%; height: 100%; object-fit: contain; }
 .stage-fixed { width: 100%; height: 100%; overflow: auto; padding: 12px; display: flex; justify-content: center; align-items: center; }
+.stage-canvas { cursor: grab; touch-action: none; }
+.stage-canvas.dragging { cursor: grabbing; }
+.stage-fit .stage-canvas { width: 100%; height: 100%; }
+.stage-fit .stage-canvas video { width: 100%; height: 100%; object-fit: contain; }
+.stage-fixed .stage-canvas { display: inline-block; }
 video { image-rendering: pixelated; position: relative; z-index: 1; display: block; }
 .placeholder { position: absolute; color: #4a4f5c; font-size: 13px; font-family: var(--font-mono); }
 
@@ -400,6 +404,8 @@ video { image-rendering: pixelated; position: relative; z-index: 1; display: blo
 .tab.active { background: var(--signal-dim); color: #d9cfff; }
 .settings-section { display: flex; flex-direction: column; gap: 10px; }
 .settings-label { margin: 0; color: var(--mist); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.console-detected { margin: -6px 0 4px; color: var(--mist); font-size: 12.5px; }
+.console-detected-name { color: var(--paper); font-weight: 700; font-family: var(--font-mono); }
 .gamepad-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--line); margin-right: 6px; }
 .gamepad-dot.connected { background: #4fd97a; box-shadow: 0 0 0 3px rgba(79,217,122,.2); }
 .scale-options { display: flex; gap: 8px; }
