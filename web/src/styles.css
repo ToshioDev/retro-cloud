@@ -13,9 +13,15 @@
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
-* { box-sizing: border-box; }
-html { color-scheme: dark; }
-body { margin: 0; min-width: 320px; background: var(--void); color: var(--paper); font-family: var(--font-body); }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html { color-scheme: dark; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; min-width: 320px; background: var(--void); color: var(--paper); font-family: var(--font-body);
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+input, textarea, [contenteditable] {
+  -webkit-user-select: text; user-select: text; -webkit-touch-callout: default;
+}
 main { width: min(880px, calc(100% - 32px)); margin: 0 auto; padding: 40px 0 60px; }
 main.in-room { width: 100%; max-width: none; margin: 0; padding: 0 320px 0 0; height: 100vh; overflow: hidden; }
 
@@ -217,6 +223,12 @@ button:disabled { cursor: progress; opacity: .55; }
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: manipulation;
 }
 .player-stage:fullscreen, .player-stage:-webkit-full-screen { width: 100vw; height: 100vh; }
+/* CSS fallback for platforms where the Fullscreen API is unavailable or silently no-ops on an
+   arbitrary element (iOS Safari, notably) — pins the stage over everything using the *dynamic*
+   viewport height so it isn't cut off by the address bar showing/hiding. */
+.player-stage.pseudo-fullscreen {
+  position: fixed; inset: 0; z-index: 1000; width: 100vw; height: 100dvh;
+}
 .player-topbar.overlay-bar {
   position: absolute; top: 0; left: 0; right: 0; z-index: 3;
   display: flex; align-items: center; gap: 8px;

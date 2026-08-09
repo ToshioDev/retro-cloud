@@ -561,20 +561,24 @@ export default function App() {
   useEffect(() => { localStorage.setItem("rc_touch_size", touchSize); }, [touchSize]);
 
   useEffect(() => {
-    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    const onFsChange = () => { if (!document.fullscreenElement) setIsFullscreen(false); };
     document.addEventListener("fullscreenchange", onFsChange);
     return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
   async function toggleFullscreen() {
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      } else if (stageWrapRef.current) {
-        await stageWrapRef.current.requestFullscreen();
-      }
-    } catch (error) {
-      console.error("[FULLSCREEN] failed:", error);
+    // iOS Safari doesn't reliably support (or, pre-16.4, doesn't support at all) the Fullscreen API on
+    // an arbitrary element, and can silently no-op. A CSS-driven "pseudo-fullscreen" (fixed, covers the
+    // full dynamic viewport) is what actually maximizes the game there; on browsers that do support real
+    // fullscreen we still request it too, so the browser chrome hides where possible.
+    if (isFullscreen) {
+      setIsFullscreen(false);
+      if (document.fullscreenElement) { try { await document.exitFullscreen(); } catch { /* ignore */ } }
+      return;
+    }
+    setIsFullscreen(true);
+    if (stageWrapRef.current?.requestFullscreen) {
+      try { await stageWrapRef.current.requestFullscreen(); } catch { /* CSS fallback still applies */ }
     }
   }
 
@@ -895,7 +899,7 @@ export default function App() {
 
     {!inLobby && <>
       <div className="room-layout">
-        <div className="player-stage" ref={stageWrapRef}>
+        <div className={isFullscreen ? "player-stage pseudo-fullscreen" : "player-stage"} ref={stageWrapRef}>
           <div className="player-topbar overlay-bar">
             <div className="brand brand-mini"><span className="brand-mark">◆</span><span className="brand-name">retro<em>X</em></span></div>
             <div className="latency-wrap">
@@ -954,8 +958,15 @@ export default function App() {
               autoPlay
               playsInline
               controls={false}
+              disablePictureInPicture
+              controlsList="nodownload nofullscreen noremoteplayback noplaybackrate"
+              onContextMenu={(event) => event.preventDefault()}
               onLoadedMetadata={() => { if (videoRef.current) setIntrinsicSize({ w: videoRef.current.videoWidth, h: videoRef.current.videoHeight }); }}
-              style={scale !== "fit" && intrinsicSize ? { width: intrinsicSize.w * Number(scale), height: "auto" } : undefined}
+              style={{
+                WebkitTouchCallout: "none" as any,
+                WebkitUserSelect: "none" as any,
+                ...(scale !== "fit" && intrinsicSize ? { width: intrinsicSize.w * Number(scale), height: "auto" } : {}),
+              }}
             />
             {mediaState !== "Receiving media" && <div className="placeholder">{translate(lang, (mediaKeys[mediaState] as any) ?? "waitingForGameServer")}</div>}
           </div>
