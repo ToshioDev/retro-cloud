@@ -64,6 +64,7 @@ const dict = {
   wantsToBeFriends: { en: "wants to be your friend", es: "quiere ser tu amigo" },
   selectConversation: { en: "Select a conversation", es: "Seleccioná una conversación" },
   selectConversationHint: { en: "Choose someone from the list to start chatting.", es: "Elegí a alguien de la lista para empezar a chatear." },
+  close: { en: "Close", es: "Cerrar" },
   addFriendPlaceholder: { en: "Add friend by username", es: "Agregar amigo por usuario" },
   addEmailTitle: { en: "Add your email", es: "Agregá tu correo" },
   addEmailSub: { en: "We need an email on file for your account.", es: "Necesitamos un correo asociado a tu cuenta." },

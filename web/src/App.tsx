@@ -2522,138 +2522,192 @@ export default function App() {
               <button className={settingsTab === "audio" ? "tab active" : "tab"} onClick={() => setSettingsTab("audio")}>{t("audio")}</button>
               <button className={settingsTab === "controls" ? "tab active" : "tab"} onClick={() => setSettingsTab("controls")}>{isTouchDevice ? t("layout") : t("controls")}</button>
             </div>
+            <div className="settings-body">
 
             {settingsTab === "display" && (
-              <div className="settings-section">
-                <p className="settings-label">{t("fieldOfView")}</p>
-                <div className="scale-options">
-                  {[["fit", t("fitScreen")], ["1", intrinsicSize ? `${intrinsicSize.w}×${intrinsicSize.h}` : "1×"],
-                    ["2", intrinsicSize ? `${intrinsicSize.w * 2}×${intrinsicSize.h * 2}` : "2×"],
-                    ["3", intrinsicSize ? `${intrinsicSize.w * 3}×${intrinsicSize.h * 3}` : "3×"]].map(([value, label]) => (
-                    <button key={value} className={scale === value ? "scale-option active" : "scale-option"} onClick={() => setScale(value)}>{label}</button>
-                  ))}
+              <>
+                <div className="settings-section">
+                  <div className="settings-section-head">
+                    <div className="settings-section-icon">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
+                    </div>
+                    <span className="settings-section-title">{t("fieldOfView")}</span>
+                  </div>
+                  <div className="scale-options">
+                    {[["fit", t("fitScreen")], ["1", intrinsicSize ? `${intrinsicSize.w}×${intrinsicSize.h}` : "1×"],
+                      ["2", intrinsicSize ? `${intrinsicSize.w * 2}×${intrinsicSize.h * 2}` : "2×"],
+                      ["3", intrinsicSize ? `${intrinsicSize.w * 3}×${intrinsicSize.h * 3}` : "3×"]].map(([value, label]) => (
+                      <button key={value} className={scale === value ? "scale-option active" : "scale-option"} onClick={() => setScale(value)}>{label}</button>
+                    ))}
+                  </div>
                 </div>
 
-                <p className="settings-label" style={{ marginTop: 14 }}>{t("screenPosition")}</p>
-                <span className="lobby-card-hint">{canvasLocked ? t("screenPositionLockedHint") : t("screenPositionHint")}</span>
-                <div className="volume-row">
-                  <span className="volume-value" style={{ minWidth: 40 }}>{Math.round(canvasZoom * 100)}%</span>
-                  <input
-                    className="volume-slider"
-                    type="range"
-                    min={50}
-                    max={200}
-                    value={Math.round(canvasZoom * 100)}
-                    onChange={(event) => setCanvasZoom(Number(event.target.value) / 100)}
-                    aria-label={t("zoom")}
-                    disabled={canvasLocked}
-                  />
-                  <button className="btn-ghost" onClick={resetCanvasPosition} disabled={canvasLocked}>{t("recenter")}</button>
+                <div className="settings-section">
+                  <div className="settings-section-head">
+                    <div className="settings-section-icon">
+                      <IconPin locked={canvasLocked} />
+                    </div>
+                    <span className="settings-section-title">{t("screenPosition")}</span>
+                  </div>
+                  <span className="lobby-card-hint">{canvasLocked ? t("screenPositionLockedHint") : t("screenPositionHint")}</span>
+                  <div className="volume-row">
+                    <span className="volume-value" style={{ minWidth: 40 }}>{Math.round(canvasZoom * 100)}%</span>
+                    <input
+                      className="volume-slider"
+                      type="range"
+                      min={50}
+                      max={200}
+                      value={Math.round(canvasZoom * 100)}
+                      onChange={(event) => setCanvasZoom(Number(event.target.value) / 100)}
+                      aria-label={t("zoom")}
+                      disabled={canvasLocked}
+                    />
+                    <button className="btn-ghost" onClick={resetCanvasPosition} disabled={canvasLocked}>{t("recenter")}</button>
+                  </div>
+                  <button className={canvasLocked ? "scale-option active canvas-lock-btn" : "scale-option canvas-lock-btn"} onClick={toggleCanvasLock}>
+                    {canvasLocked ? t("unlockPosition") : t("lockPosition")}
+                  </button>
                 </div>
-                <button className={canvasLocked ? "scale-option active canvas-lock-btn" : "scale-option canvas-lock-btn"} onClick={toggleCanvasLock}>
-                  <IconPin locked={canvasLocked} /> {canvasLocked ? t("unlockPosition") : t("lockPosition")}
-                </button>
 
-                <p className="settings-label" style={{ marginTop: 14 }}>{t("crtEffect")}</p>
-                <span className="lobby-card-hint">{t("crtEffectHint")}</span>
-                <button
-                  className={crtEffect ? "scale-option active canvas-lock-btn" : "scale-option canvas-lock-btn"}
-                  onClick={() => { setCrtEffect((v) => !v); playClickSound(); }}
-                >
-                  <IconTv active={crtEffect} /> {crtEffect ? "CRT Enabled" : "CRT Disabled"}
-                </button>
-              </div>
+                <div className="settings-section">
+                  <div className="settings-section-head">
+                    <div className="settings-section-icon">
+                      <IconTv active={crtEffect} />
+                    </div>
+                    <span className="settings-section-title">{t("crtEffect")}</span>
+                  </div>
+                  <span className="lobby-card-hint">{t("crtEffectHint")}</span>
+                  <button
+                    className={crtEffect ? "scale-option active canvas-lock-btn" : "scale-option canvas-lock-btn"}
+                    onClick={() => { setCrtEffect((v) => !v); playClickSound(); }}
+                  >
+                    {crtEffect ? "CRT Enabled" : "CRT Disabled"}
+                  </button>
+                </div>
+              </>
             )}
 
             {settingsTab === "audio" && (
-              <div className="settings-section">
-                <p className="settings-label">{t("volume")}</p>
-                <div className="volume-row">
-                  <button className="icon-button" aria-label={muted ? t("unmute") : t("mute")} onClick={() => setMuted((v) => !v)}><IconVolume muted={muted} /></button>
-                  <input
-                    className="volume-slider"
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={volume}
-                    onChange={(event) => { setVolume(Number(event.target.value)); setMuted(false); }}
-                  />
-                  <span className="volume-value">{muted ? 0 : volume}%</span>
+              <>
+                <div className="settings-section">
+                  <div className="settings-section-head">
+                    <div className="settings-section-icon">
+                      <IconVolume muted={muted} />
+                    </div>
+                    <span className="settings-section-title">{t("volume")}</span>
+                  </div>
+                  <div className="volume-row">
+                    <button className="icon-button" aria-label={muted ? t("unmute") : t("mute")} onClick={() => setMuted((v) => !v)}><IconVolume muted={muted} /></button>
+                    <input
+                      className="volume-slider"
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={volume}
+                      onChange={(event) => { setVolume(Number(event.target.value)); setMuted(false); }}
+                    />
+                    <span className="volume-value">{muted ? 0 : volume}%</span>
+                  </div>
                 </div>
 
-                <p className="settings-label" style={{ marginTop: 14 }}>{t("soundFx")}</p>
-                <span className="lobby-card-hint">{t("soundFxHint")}</span>
-                <button
-                  className={soundFxEnabled ? "scale-option active canvas-lock-btn" : "scale-option canvas-lock-btn"}
-                  onClick={() => {
-                    const next = !soundFxEnabled;
-                    setSoundEnabled(next);
-                    setSoundFxEnabledState(next);
-                    if (next) playClickSound();
-                  }}
-                >
-                  <IconSoundFx enabled={soundFxEnabled} /> {soundFxEnabled ? "Sound FX On" : "Sound FX Off"}
-                </button>
-              </div>
-            )}
-
-            {settingsTab === "controls" && isTouchDevice && (
-              <div className="settings-section">
-                <p className="settings-label">{t("handedness")}</p>
-                <div className="scale-options">
-                  <button className={touchLayout === "standard" ? "scale-option active" : "scale-option"} onClick={() => setTouchLayout("standard")}>{t("standard")}</button>
-                  <button className={touchLayout === "swapped" ? "scale-option active" : "scale-option"} onClick={() => setTouchLayout("swapped")}>{t("lefthanded")}</button>
+                <div className="settings-section">
+                  <div className="settings-section-head">
+                    <div className="settings-section-icon">
+                      <IconSoundFx enabled={soundFxEnabled} />
+                    </div>
+                    <span className="settings-section-title">{t("soundFx")}</span>
+                  </div>
+                  <span className="lobby-card-hint">{t("soundFxHint")}</span>
+                  <button
+                    className={soundFxEnabled ? "scale-option active canvas-lock-btn" : "scale-option canvas-lock-btn"}
+                    onClick={() => {
+                      const next = !soundFxEnabled;
+                      setSoundEnabled(next);
+                      setSoundFxEnabledState(next);
+                      if (next) playClickSound();
+                    }}
+                  >
+                    {soundFxEnabled ? "Sound FX On" : "Sound FX Off"}
+                  </button>
                 </div>
-                <p className="settings-label" style={{ marginTop: 10 }}>{t("buttonSize")}</p>
-                <div className="scale-options">
-                  <button className={touchSize === "compact" ? "scale-option active" : "scale-option"} onClick={() => setTouchSize("compact")}>{t("compact")}</button>
-                  <button className={touchSize === "large" ? "scale-option active" : "scale-option"} onClick={() => setTouchSize("large")}>{t("large")}</button>
-                </div>
-              </div>
+              </>
             )}
 
             {settingsTab === "controls" && (
-              <p className="console-detected">{t("controlsForConsole")} <span className="console-detected-name">{CONSOLES.find((c) => c.id === activeConsole)?.label ?? activeConsole.toUpperCase()}</span></p>
+              <>
+                <div className="settings-section">
+                  <div className="settings-section-head">
+                    <div className="settings-section-icon">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="6" width="20" height="12" rx="2" /><line x1="6" y1="10" x2="6" y2="14" /><line x1="4" y1="12" x2="8" y2="12" /><circle cx="16" cy="10" r="1" fill="currentColor" /><circle cx="18" cy="12" r="1" fill="currentColor" /></svg>
+                    </div>
+                    <span className="settings-section-title">{isTouchDevice ? t("layout") : t("controls")}</span>
+                  </div>
+                  <p className="console-detected">{t("controlsForConsole")} <span className="console-detected-name">{CONSOLES.find((c) => c.id === activeConsole)?.label ?? activeConsole.toUpperCase()}</span></p>
+
+                  {isTouchDevice && (
+                    <>
+                      <p className="settings-label">{t("handedness")}</p>
+                      <div className="scale-options">
+                        <button className={touchLayout === "standard" ? "scale-option active" : "scale-option"} onClick={() => setTouchLayout("standard")}>{t("standard")}</button>
+                        <button className={touchLayout === "swapped" ? "scale-option active" : "scale-option"} onClick={() => setTouchLayout("swapped")}>{t("lefthanded")}</button>
+                      </div>
+                      <p className="settings-label" style={{ marginTop: 6 }}>{t("buttonSize")}</p>
+                      <div className="scale-options">
+                        <button className={touchSize === "compact" ? "scale-option active" : "scale-option"} onClick={() => setTouchSize("compact")}>{t("compact")}</button>
+                        <button className={touchSize === "large" ? "scale-option active" : "scale-option"} onClick={() => setTouchSize("large")}>{t("large")}</button>
+                      </div>
+                    </>
+                  )}
+
+                  {!isTouchDevice && (
+                    <>
+                      <p className="settings-label">{t("keyboardBindings")} · P{playerNumber ?? 1}</p>
+                      <ul className="keybind-list">
+                        {activeConsoleButtons.map((button) => (
+                          <li key={button} className="keybind-row">
+                            <span className="keybind-name">{button}</span>
+                            <button className="keybind-key" onClick={() => rebindKey(button)}>
+                              {rebinding === button ? t("pressAKey") : keyBindings[button]}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+
+                <div className="settings-section">
+                  <div className="settings-section-head">
+                    <div className="settings-section-icon">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="6" width="20" height="12" rx="3" /><circle cx="8" cy="12" r="2" /><circle cx="16" cy="12" r="2" /></svg>
+                    </div>
+                    <span className="settings-section-title">
+                      <span className={gamepadConnected ? "gamepad-dot connected" : "gamepad-dot"} />
+                      {t("gamepad")} · P{playerNumber ?? 1}
+                    </span>
+                  </div>
+                  {gamepadConnected ? (
+                    <ul className="keybind-list">
+                      {activeConsoleButtons.map((button) => (
+                        <li key={button} className="keybind-row">
+                          <span className="keybind-name">{button}</span>
+                          <button className="keybind-key" onClick={() => setRebindingGamepad(button)}>
+                            {rebindingGamepad === button ? t("pressAButton") : `#${gamepadBindings[button]}`}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="lobby-card-hint">{t("gamepadHint")}</p>
+                  )}
+                </div>
+              </>
             )}
 
-            {settingsTab === "controls" && !isTouchDevice && (
-              <div className="settings-section">
-                <p className="settings-label">{t("keyboardBindings")} · P{playerNumber ?? 1}</p>
-                <ul className="keybind-list">
-                  {activeConsoleButtons.map((button) => (
-                    <li key={button} className="keybind-row">
-                      <span className="keybind-name">{button}</span>
-                      <button className="keybind-key" onClick={() => rebindKey(button)}>
-                        {rebinding === button ? t("pressAKey") : keyBindings[button]}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {settingsTab === "controls" && (
-              <div className="settings-section">
-                <p className="settings-label">
-                  <span className={gamepadConnected ? "gamepad-dot connected" : "gamepad-dot"} />
-                  {t("gamepad")} · P{playerNumber ?? 1}
-                </p>
-                {gamepadConnected ? (
-                  <ul className="keybind-list">
-                    {activeConsoleButtons.map((button) => (
-                      <li key={button} className="keybind-row">
-                        <span className="keybind-name">{button}</span>
-                        <button className="keybind-key" onClick={() => setRebindingGamepad(button)}>
-                          {rebindingGamepad === button ? t("pressAButton") : `#${gamepadBindings[button]}`}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="lobby-card-hint">{t("gamepadHint")}</p>
-                )}
-              </div>
-            )}
+            </div>
+            <button className="settings-close-mobile" onClick={() => setSettingsOpen(false)}>
+              <IconClose /> {t("close")}
+            </button>
           </div>
         </div>
       )}
