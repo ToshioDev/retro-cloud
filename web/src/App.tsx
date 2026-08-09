@@ -115,6 +115,11 @@ function IconCrown() {
     <path d="M4 18h16l1-9-5 3-4-6-4 6-5-3 1 9Z" />
   </svg>;
 }
+function IconProfile() {
+  return <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.5-6 8-6s8 2 8 6" />
+  </svg>;
+}
 function IconClose() {
   return <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
     <path d="M6 6l12 12M18 6L6 18" />
@@ -264,7 +269,7 @@ export default function App() {
   const [roomOwner, setRoomOwner] = useState<string | null>(null);
   const [closingRoom, setClosingRoom] = useState(false);
   const [activeRooms, setActiveRooms] = useState<ActiveRoom[]>([]);
-  const [lobbyView, setLobbyView] = useState<"rooms" | "catalog">("rooms");
+  const [lobbyView, setLobbyView] = useState<"rooms" | "catalog" | "profile">("rooms");
   const [roms, setRoms] = useState<RomEntry[]>([]);
   const [selectedRom, setSelectedRom] = useState<string | null>(null);
   const [catalogConsole, setCatalogConsole] = useState<string>("all");
@@ -1130,52 +1135,17 @@ export default function App() {
       <>
         <div className="popover-backdrop" onClick={() => setAccountPopoverOpen(false)} />
         <div className="account-popover">
-          <p className="account-popover-name">{authUsername}</p>
-          <p className="account-popover-email">
-            {profileEmail ?? t("noEmailSet")}
-            <button className="link-button" onClick={() => { setEmailInput(profileEmail ?? ""); setEmailPromptOpen(true); setAccountPopoverOpen(false); }}>{t("edit")}</button>
-          </p>
-
-          <div className="friends-block">
-            <p className="settings-label">{t("friends")} · {friends.friends.length}</p>
-            {friends.incoming.length > 0 && (
-              <ul className="friend-list">
-                {friends.incoming.map((name) => (
-                  <li key={name} className="friend-row">
-                    <span className="roster-avatar small">{name.slice(0, 1).toUpperCase()}</span>
-                    <span className="friend-name">{name}</span>
-                    <button className="btn-primary friend-accept" onClick={() => respondFriendRequest(name, true)}>{t("accept")}</button>
-                    <button className="link-button" onClick={() => respondFriendRequest(name, false)}>{t("decline")}</button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {friends.friends.length > 0 && (
-              <ul className="friend-list">
-                {friends.friends.map((name) => (
-                  <li key={name} className="friend-row">
-                    <span className="roster-avatar small">{name.slice(0, 1).toUpperCase()}</span>
-                    <span className="friend-name">{name}</span>
-                    <button className="link-button" onClick={() => removeFriend(name)}>{t("remove")}</button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="form-row">
-              <input
-                className="field"
-                value={addFriendInput}
-                onChange={(event) => setAddFriendInput(event.target.value)}
-                onKeyDown={(event) => { if (event.key === "Enter") sendFriendRequest(); }}
-                placeholder={t("addFriendPlaceholder")}
-                aria-label={t("addFriendPlaceholder")}
-              />
-              <button className="btn-ghost" onClick={sendFriendRequest} disabled={!addFriendInput.trim()}>{t("add")}</button>
-            </div>
-            {friendError && <p className="form-error">{friendError}</p>}
+          <div className="account-popover-head">
+            <span className="roster-avatar">{(authUsername ?? "?").slice(0, 1).toUpperCase()}</span>
+            <p className="account-popover-name">{authUsername}</p>
           </div>
-
-          <LangToggle lang={lang} setLang={setLang} />
+          <button className="account-popover-item" onClick={() => { setLobbyView("profile"); setAccountPopoverOpen(false); }}>
+            <IconProfile /> {t("goToProfile")}
+          </button>
+          <div className="account-popover-item account-popover-plan">
+            <IconCrown /> {t("plan")}
+            <span className="soon-badge">{t("comingSoon")}</span>
+          </div>
           <button className="btn-danger account-popover-logout" onClick={logout}>{t("logOut")}</button>
         </div>
       </>
@@ -1410,6 +1380,92 @@ export default function App() {
             {biosError && <p className="form-error">{biosError}</p>}
           </div>
         )}
+      </section>
+    )}
+
+    {inLobby && lobbyView === "profile" && (
+      <section className="lobby">
+        <div className="lobby-head">
+          <div>
+            <h2>{t("profileTitle")}</h2>
+            <p className="lobby-sub">{t("profileSub")}</p>
+          </div>
+        </div>
+
+        <div className="profile-grid">
+          <div className="lobby-card profile-card">
+            <div className="profile-card-avatar-row">
+              <span className="roster-avatar profile-avatar">{(authUsername ?? "?").slice(0, 1).toUpperCase()}</span>
+              <div>
+                <p className="profile-username">{authUsername}</p>
+                <p className="lobby-card-hint" style={{ margin: 0 }}>{t("memberSince")}</p>
+              </div>
+            </div>
+            <p className="form-label" style={{ marginTop: 8 }}>{t("email")}</p>
+            <p className="account-popover-email">
+              {profileEmail ?? t("noEmailSet")}
+              <button className="link-button" onClick={() => { setEmailInput(profileEmail ?? ""); setEmailPromptOpen(true); }}>{t("edit")}</button>
+            </p>
+          </div>
+
+          <div className="lobby-card profile-card">
+            <p className="form-label">{t("plan")}</p>
+            <div className="profile-plan-row">
+              <div>
+                <p className="profile-plan-name">{t("freePlan")}</p>
+                <span className="lobby-card-hint">{t("planHint")}</span>
+              </div>
+              <span className="soon-badge">{t("comingSoon")}</span>
+            </div>
+          </div>
+
+          <div className="lobby-card profile-card">
+            <p className="form-label">{t("friends")} · {friends.friends.length}</p>
+            {friends.incoming.length > 0 && (
+              <ul className="friend-list">
+                {friends.incoming.map((name) => (
+                  <li key={name} className="friend-row">
+                    <span className="roster-avatar small">{name.slice(0, 1).toUpperCase()}</span>
+                    <span className="friend-name">{name}</span>
+                    <button className="btn-primary friend-accept" onClick={() => respondFriendRequest(name, true)}>{t("accept")}</button>
+                    <button className="link-button" onClick={() => respondFriendRequest(name, false)}>{t("decline")}</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {friends.friends.length > 0 && (
+              <ul className="friend-list">
+                {friends.friends.map((name) => (
+                  <li key={name} className="friend-row">
+                    <span className="roster-avatar small">{name.slice(0, 1).toUpperCase()}</span>
+                    <span className="friend-name">{name}</span>
+                    <button className="link-button" onClick={() => removeFriend(name)}>{t("remove")}</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {friends.friends.length === 0 && friends.incoming.length === 0 && (
+              <p className="lobby-card-hint">{t("noFriendsYet")}</p>
+            )}
+            <div className="form-row" style={{ marginTop: 8 }}>
+              <input
+                className="field"
+                value={addFriendInput}
+                onChange={(event) => setAddFriendInput(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") sendFriendRequest(); }}
+                placeholder={t("addFriendPlaceholder")}
+                aria-label={t("addFriendPlaceholder")}
+              />
+              <button className="btn-ghost" onClick={sendFriendRequest} disabled={!addFriendInput.trim()}>{t("add")}</button>
+            </div>
+            {friendError && <p className="form-error">{friendError}</p>}
+          </div>
+
+          <div className="lobby-card profile-card">
+            <p className="form-label">{t("language")}</p>
+            <LangToggle lang={lang} setLang={setLang} />
+          </div>
+        </div>
       </section>
     )}
 

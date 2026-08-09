@@ -175,10 +175,20 @@ button:disabled { cursor: progress; opacity: .55; }
   box-shadow: 0 20px 40px rgba(0,0,0,.5);
   animation: popIn .15s ease both;
 }
+.account-popover-head { display: flex; align-items: center; gap: 10px; }
 .account-popover-name { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 15px; }
 .account-popover-email { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -6px 0 0; color: var(--mist); font-size: 13px; }
+.account-popover-item {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px 12px; border-radius: 10px;
+  background: var(--panel-raised); border: 1px solid var(--line); color: var(--paper); font-size: 13px; font-weight: 600; text-align: left;
+}
+.account-popover-plan { cursor: default; color: var(--mist); }
+.account-popover-plan:hover { border-color: var(--line); }
+.soon-badge {
+  margin-left: auto; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase; background: var(--signal-dim); color: #d9cfff; flex-shrink: 0;
+}
 .account-popover-logout { width: 100%; text-align: center; }
-.friends-block { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
 .friend-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .friend-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .friend-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--paper); }
@@ -194,6 +204,13 @@ button:disabled { cursor: progress; opacity: .55; }
 .lobby-card-cta { width: 100%; text-align: center; font-size: 13px; white-space: normal; line-height: 1.4; }
 .lobby-card-hint { color: var(--mist); font-size: 12px; margin-top: -4px; }
 .catalog-upload-card { max-width: 420px; margin-top: 18px; }
+
+.profile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.profile-card-avatar-row { display: flex; align-items: center; gap: 12px; }
+.profile-avatar { width: 48px; height: 48px; font-size: 18px; flex-shrink: 0; }
+.profile-username { margin: 0 0 2px; font-family: var(--font-display); font-weight: 600; font-size: 16px; }
+.profile-plan-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.profile-plan-name { margin: 0; font-weight: 600; color: var(--paper); }
 
 .upload-drop {
   position: relative; display: flex; align-items: center; justify-content: center; text-align: center;
