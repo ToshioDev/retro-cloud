@@ -466,6 +466,9 @@ function ControlEditor({ consoleId, customPositions, onPositionsChange, onClose,
     return initial;
   });
   const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const dragStartPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const DPAD = ["UP", "DOWN", "LEFT", "RIGHT"] as const;
+  const isDpad = (id: string) => DPAD.includes(id as any);
 
   const handlePointerDown = (id: string, e: React.PointerEvent) => {
     e.preventDefault();
@@ -474,6 +477,8 @@ function ControlEditor({ consoleId, customPositions, onPositionsChange, onClose,
     if (!btn) return;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     dragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const pos = positions[id];
+    dragStartPos.current = { x: pos.x, y: pos.y };
     setDragging(id);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
@@ -483,7 +488,23 @@ function ControlEditor({ consoleId, customPositions, onPositionsChange, onClose,
     const container = containerRef.current.getBoundingClientRect();
     const x = e.clientX - container.left - dragOffset.current.x;
     const y = e.clientY - container.top - dragOffset.current.y;
-    setPositions((prev) => ({ ...prev, [dragging]: { x: Math.max(0, x), y: Math.max(0, y) } }));
+    if (isDpad(dragging)) {
+      const dx = x - dragStartPos.current.x;
+      const dy = y - dragStartPos.current.y;
+      setPositions((prev) => {
+        const next = { ...prev };
+        DPAD.forEach((id) => {
+          const orig = preset.buttons.find((b) => b.id === id);
+          if (orig) {
+            const base = customPositions[id] ?? { x: orig.x, y: orig.y };
+            next[id] = { x: Math.max(0, base.x + dx), y: Math.max(0, base.y + dy) };
+          }
+        });
+        return next;
+      });
+    } else {
+      setPositions((prev) => ({ ...prev, [dragging]: { x: Math.max(0, x), y: Math.max(0, y) } }));
+    }
   };
 
   const handlePointerUp = () => { setDragging(null); };
@@ -500,13 +521,17 @@ function ControlEditor({ consoleId, customPositions, onPositionsChange, onClose,
         </div>
       </div>
       <div className="control-editor-area" ref={containerRef}>
+        {isDpad(dragging ?? "") && (
+          <div className="dpad-group-indicator" style={{ position: "absolute", left: positions["LEFT"]?.x ?? 0, top: positions["UP"]?.y ?? 0, width: (positions["RIGHT"]?.x ?? 0) - (positions["LEFT"]?.x ?? 0) + preset.buttons.find(b => b.id === "RIGHT")!.size, height: (positions["DOWN"]?.y ?? 0) - (positions["UP"]?.y ?? 0) + preset.buttons.find(b => b.id === "DOWN")!.size, borderRadius: 12 }} />
+        )}
         {preset.buttons.map((btn) => {
           const pos = positions[btn.id];
-          const isDragging = dragging === btn.id;
+          const isDraggingThis = dragging === btn.id;
+          const isDpadGroup = isDpad(btn.id) && isDpad(dragging ?? "");
           return (
             <div
               key={btn.id}
-              className={`control-editor-ghost ${btn.shape === "circle" ? "ghost-circle" : "ghost-pill"} ${isDragging ? "dragging" : ""}`}
+              className={`control-editor-ghost ${btn.shape === "circle" ? "ghost-circle" : "ghost-pill"} ${isDraggingThis ? "dragging" : ""} ${isDpadGroup ? "dpad-group" : ""}`}
               style={{ position: "absolute", left: pos.x, top: pos.y, width: btn.size, height: btn.size }}
               onPointerDown={(e) => handlePointerDown(btn.id, e)}
             >

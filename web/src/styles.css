@@ -1368,6 +1368,13 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
   .control-editor-ghost.dragging {
     border-color: var(--signal); background: rgba(139,92,246,0.2);
   }
+  .control-editor-ghost.dpad-group {
+    border-color: var(--cyan);
+  }
+  .dpad-group-indicator {
+    border: 2px dashed rgba(34,211,238,0.3); background: rgba(34,211,238,0.05);
+    pointer-events: none; z-index: 0;
+  }
   .control-editor-hint {
     position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
     color: rgba(255,255,255,0.4); font-size: 12px; text-align: center;
