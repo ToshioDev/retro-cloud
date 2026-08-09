@@ -194,8 +194,10 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     g_object_set(peer->webrtcbin, "bundle-policy", 3 /* GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE */, nullptr);
     g_object_set(peer->webrtcbin, "stun-server", "stun://stun.l.google.com:19302", nullptr);
     // Drop old buffers instead of queueing them: a laggy peer should skip ahead rather than build up latency.
-    g_object_set(peer->video_queue, "leaky", 2 /* downstream */, "max-size-buffers", 3, "max-size-time", (guint64)200000000 /* 200ms */, "max-size-bytes", 0, nullptr);
-    g_object_set(peer->audio_queue, "leaky", 2 /* downstream */, "max-size-buffers", 30, "max-size-time", (guint64)200000000 /* 200ms */, "max-size-bytes", 0, nullptr);
+    // A single H.264 keyframe fragments into many RTP packets, so the buffer cap must stay generous —
+    // too small and it drops mid-keyframe, which starves the decoder of anything to show at all.
+    g_object_set(peer->video_queue, "leaky", 2 /* downstream */, "max-size-buffers", 300, "max-size-time", (guint64)500000000 /* 500ms */, "max-size-bytes", 0, nullptr);
+    g_object_set(peer->audio_queue, "leaky", 2 /* downstream */, "max-size-buffers", 300, "max-size-time", (guint64)500000000 /* 500ms */, "max-size-bytes", 0, nullptr);
     gst_bin_add_many(GST_BIN(pipeline_), peer->webrtcbin, peer->video_queue, peer->audio_queue, nullptr);
     if (!gst_element_link(video_tee_, peer->video_queue) || !gst_element_link(peer->video_queue, peer->webrtcbin) ||
         !gst_element_link(audio_tee_, peer->audio_queue) || !gst_element_link(peer->audio_queue, peer->webrtcbin)) {
