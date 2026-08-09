@@ -192,6 +192,7 @@ export default function App() {
   const [rttMs, setRttMs] = useState<number | null>(null);
   const [latencyPopoverOpen, setLatencyPopoverOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
   const statsIntervalRef = useRef<number | null>(null);
   const myPeerIdRef = useRef<string | null>(null);
   const hostPeerIdRef = useRef<string | null>(null);
@@ -663,6 +664,34 @@ export default function App() {
           <span className="user-chip">{authUsername}<button className="link-button" onClick={logout}>{t("logOut")}</button></span>
         </div>
       </header>
+    )}
+
+    {inLobby && (
+      <nav className="bottom-tab-bar">
+        <button className={lobbyView === "rooms" ? "bottom-tab active" : "bottom-tab"} onClick={() => setLobbyView("rooms")}>
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 11l9-7 9 7" /><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9" /></svg>
+          <span>{t("roomsTab")}</span>
+        </button>
+        <button className={lobbyView === "catalog" ? "bottom-tab active" : "bottom-tab"} onClick={() => setLobbyView("catalog")}>
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></svg>
+          <span>{t("catalogTab")}</span>
+        </button>
+        <button className="bottom-tab" onClick={() => setAccountPopoverOpen(true)}>
+          <span className="roster-avatar small">{(authUsername ?? "?").slice(0, 1).toUpperCase()}</span>
+          <span>{t("account")}</span>
+        </button>
+      </nav>
+    )}
+
+    {accountPopoverOpen && (
+      <>
+        <div className="popover-backdrop" onClick={() => setAccountPopoverOpen(false)} />
+        <div className="account-popover">
+          <p className="account-popover-name">{authUsername}</p>
+          <LangToggle lang={lang} setLang={setLang} />
+          <button className="btn-danger account-popover-logout" onClick={logout}>{t("logOut")}</button>
+        </div>
+      </>
     )}
 
     {inLobby && lobbyView === "rooms" && (

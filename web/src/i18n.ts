@@ -26,6 +26,7 @@ const dict = {
   logOut: { en: "Log out", es: "Cerrar sesión" },
   room: { en: "Room", es: "Sala" },
 
+  account: { en: "Account", es: "Cuenta" },
   roomsTab: { en: "Rooms", es: "Salas" },
   catalogTab: { en: "Catalog", es: "Catálogo" },
   catalogTitle: { en: "Game catalog", es: "Catálogo de juegos" },
