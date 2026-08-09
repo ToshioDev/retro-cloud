@@ -555,30 +555,43 @@ export default function App() {
                 <span>{t("uploadFromPanel")}</span>
               </div>
             ) : (
-              <div className="game-showcase">
-                {roms.map((rom) => (
-                  <div
-                    key={rom.file}
-                    role="button"
-                    tabIndex={0}
-                    className={selectedRom === rom.file ? "game-tile active" : "game-tile"}
-                    onClick={() => setSelectedRom(rom.file)}
-                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedRom(rom.file); }}
-                  >
-                    {rom.owner === authUsername && (
-                      <button
-                        className="game-tile-delete"
-                        aria-label={t("deleteRom")}
-                        onClick={(event) => { event.stopPropagation(); void deleteRom(rom.file); }}
-                      >
-                        <IconClose />
-                      </button>
-                    )}
-                    <span className="game-tile-glyph">{rom.game === "nes" ? "▮▮" : "▮▮▮"}</span>
-                    <span className="game-tile-label">{rom.file}</span>
-                    <span className="game-tile-blurb">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB{!rom.owner && ` · ${t("shared")}`}</span>
-                  </div>
-                ))}
+              <div className="catalog">
+                {(["snes", "nes"] as const).map((consoleName) => {
+                  const consoleRoms = roms.filter((rom) => rom.game === consoleName);
+                  if (consoleRoms.length === 0) return null;
+                  return (
+                    <div key={consoleName} className="catalog-row">
+                      <p className="catalog-row-title">{consoleName.toUpperCase()} <span className="catalog-row-count">{consoleRoms.length}</span></p>
+                      <div className="catalog-track">
+                        {consoleRoms.map((rom) => (
+                          <div
+                            key={rom.file}
+                            role="button"
+                            tabIndex={0}
+                            className={selectedRom === rom.file ? "game-card active" : "game-card"}
+                            onClick={() => setSelectedRom(rom.file)}
+                            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedRom(rom.file); }}
+                          >
+                            {rom.owner === authUsername && (
+                              <button
+                                className="game-card-delete"
+                                aria-label={t("deleteRom")}
+                                onClick={(event) => { event.stopPropagation(); void deleteRom(rom.file); }}
+                              >
+                                <IconClose />
+                              </button>
+                            )}
+                            <div className="game-card-cover">
+                              <span className="game-card-glyph">{consoleName === "nes" ? "▮▮" : "▮▮▮"}</span>
+                            </div>
+                            <span className="game-card-label">{rom.file.replace(/\.(nes|sfc|smc)$/i, "")}</span>
+                            <span className="game-card-meta">{(rom.size / 1024 / 1024).toFixed(1)} MB{!rom.owner && ` · ${t("shared")}`}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

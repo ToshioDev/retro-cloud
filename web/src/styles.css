@@ -132,14 +132,40 @@ button:disabled { cursor: progress; opacity: .55; }
 
 /* Game showcase */
 .showcase-label { margin-top: 0; }
-.game-showcase { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-.game-tile { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 18px; border-radius: 14px; background: var(--panel); text-align: left; border: 1px solid var(--line); cursor: pointer; }
-.game-tile-delete { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--panel-raised); color: var(--mist); }
-.game-tile-delete:hover { background: var(--ember); color: #fff; border-color: var(--ember); }
-.game-tile-glyph { font-family: var(--font-mono); color: var(--signal); font-size: 14px; letter-spacing: 3px; }
-.game-tile-label { font-family: var(--font-mono); font-weight: 600; font-size: 13px; word-break: break-all; }
-.game-tile-blurb { color: var(--mist); font-size: 12px; }
-.game-tile.active { border-color: var(--signal); background: linear-gradient(160deg, var(--signal-dim), var(--panel)); }
+/* Netflix-style catalog: one horizontally-scrolling row per console */
+.catalog { display: flex; flex-direction: column; gap: 22px; }
+.catalog-row { min-width: 0; }
+.catalog-row-title { margin: 0 0 10px; font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--paper); letter-spacing: .03em; }
+.catalog-row-count { color: var(--mist); font-weight: 400; font-size: 12px; margin-left: 4px; }
+.catalog-track {
+  display: flex; gap: 12px; overflow-x: auto; padding: 4px 4px 12px;
+  scroll-snap-type: x proximity; scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+}
+.catalog-track::-webkit-scrollbar { height: 6px; }
+.catalog-track::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
+
+.game-card {
+  position: relative; flex: 0 0 132px; display: flex; flex-direction: column; gap: 6px;
+  scroll-snap-align: start; cursor: pointer; text-align: left;
+  transition: transform .15s ease;
+}
+.game-card:hover, .game-card:focus-visible { transform: translateY(-4px); outline: none; }
+.game-card-cover {
+  width: 132px; height: 176px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(160deg, var(--panel-raised), var(--panel)); border: 1px solid var(--line);
+  box-shadow: 0 10px 24px rgba(0,0,0,.35);
+}
+.game-card.active .game-card-cover { border-color: var(--signal); box-shadow: 0 0 0 2px var(--signal), 0 10px 24px rgba(0,0,0,.35); }
+.game-card-glyph { font-family: var(--font-mono); color: var(--signal); font-size: 22px; letter-spacing: 4px; }
+.game-card-label { font-size: 12px; font-weight: 600; color: var(--paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.game-card-meta { font-size: 11px; color: var(--mist); }
+.game-card-delete {
+  position: absolute; top: 6px; right: 6px; z-index: 1; width: 22px; height: 22px; padding: 0;
+  display: flex; align-items: center; justify-content: center; border-radius: 50%;
+  background: rgba(6,7,10,.75); backdrop-filter: blur(4px); color: var(--mist); opacity: 0; transition: opacity .15s ease;
+}
+.game-card:hover .game-card-delete { opacity: 1; }
+.game-card-delete:hover { background: var(--ember); color: #fff; border-color: var(--ember); }
 
 @media (max-width: 780px) {
   .lobby-split { grid-template-columns: 1fr; }
