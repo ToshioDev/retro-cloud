@@ -375,7 +375,7 @@ button:disabled { cursor: progress; opacity: .55; }
 .stage { position: absolute; inset: 0; display: flex; justify-content: center; align-items: center; overflow: hidden; background: #000; }
 .stage-fit { width: 100%; height: 100%; }
 .stage-fit video { width: 100%; height: 100%; object-fit: contain; }
-.stage-fixed { width: 100%; height: 100%; overflow: auto; padding: 12px; }
+.stage-fixed { width: 100%; height: 100%; overflow: auto; padding: 12px; display: flex; justify-content: center; align-items: center; }
 video { image-rendering: pixelated; position: relative; z-index: 1; display: block; }
 .placeholder { position: absolute; color: #4a4f5c; font-size: 13px; font-family: var(--font-mono); }
 
