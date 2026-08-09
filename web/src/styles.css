@@ -183,6 +183,14 @@ button:disabled { cursor: progress; opacity: .55; }
 }
 .upload-drop:hover { border-color: var(--signal); color: var(--paper); }
 .upload-drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.upload-drop.drag-active { border-color: var(--signal); background: var(--signal-dim); color: var(--paper); }
+.upload-drop.uploading { cursor: progress; border-style: solid; border-color: var(--signal); }
+.upload-drop.upload-done { border-color: #4fd97a; color: #4fd97a; }
+
+.upload-progress { display: flex; align-items: center; gap: 10px; width: 100%; }
+.upload-progress-track { flex: 1; height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.upload-progress-fill { height: 100%; background: var(--signal); border-radius: 999px; transition: width .15s ease; }
+.upload-progress-pct { flex-shrink: 0; font-family: var(--font-mono); font-size: 12px; color: var(--paper); min-width: 34px; text-align: right; }
 
 /* Game catalog: search + console pills, poster grid */
 .showcase-label { margin-top: 0; }

@@ -107,6 +107,22 @@ function IconRefresh() {
   </svg>;
 }
 
+function IconLogout() {
+  return <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" />
+  </svg>;
+}
+function IconGrid() {
+  return <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
+  </svg>;
+}
+function IconRoomsNav() {
+  return <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 11l9-7 9 7" /><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9" />
+  </svg>;
+}
+
 function TouchButton({ label, className, onPress }: { label: string; className: string; onPress: (pressed: boolean) => void }) {
   const [held, setHeld] = useState(false);
   const pressedRef = useRef(false);
@@ -209,6 +225,9 @@ export default function App() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadDone, setUploadDone] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [playerNumber, setPlayerNumber] = useState<number | null>(null);
   const [keyBindings, setKeyBindings] = useState<Record<Button, string>>(loadKeyBindings);
@@ -332,20 +351,34 @@ export default function App() {
       return;
     }
     setUploading(true);
+    setUploadProgress(0);
+    setUploadDone(false);
     setUploadError("");
     try {
-      const response = await fetch(`${romsUrl}?filename=${encodeURIComponent(file.name)}`, {
-        method: "POST",
-        headers: { "content-type": "application/octet-stream", authorization: `Bearer ${authToken}` },
-        body: file,
+      const uploaded = await new Promise<RomEntry>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${romsUrl}?filename=${encodeURIComponent(file.name)}`);
+        xhr.setRequestHeader("content-type", "application/octet-stream");
+        xhr.setRequestHeader("authorization", `Bearer ${authToken}`);
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) setUploadProgress(Math.round((event.loaded / event.total) * 100));
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try { resolve(JSON.parse(xhr.responseText)); } catch { reject(new Error("upload failed")); }
+          } else {
+            const body = (() => { try { return JSON.parse(xhr.responseText); } catch { return {}; } })();
+            reject(new Error(body.error ?? `upload failed (${xhr.status})`));
+          }
+        };
+        xhr.onerror = () => reject(new Error("upload failed"));
+        xhr.send(file);
       });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.error ?? `upload failed (${response.status})`);
-      }
-      const uploaded = await response.json() as RomEntry;
+      setUploadProgress(100);
       await refreshRoms();
       setSelectedRom(uploaded.file);
+      setUploadDone(true);
+      window.setTimeout(() => setUploadDone(false), 1800);
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "upload failed");
     } finally {
@@ -879,20 +912,24 @@ export default function App() {
 
   return <main className={inLobby ? undefined : "in-room"}>
     {inLobby && (
-      <header className="brand-header">
-        <div className="brand"><span className="brand-mark">◆</span><span className="brand-name">retro<em>X</em></span></div>
-        <nav className="navbar-tabs">
-          <button className={lobbyView === "rooms" ? "navbar-tab active" : "navbar-tab"} onClick={() => setLobbyView("rooms")}>{t("roomsTab")}</button>
-          <button className={lobbyView === "catalog" ? "navbar-tab active" : "navbar-tab"} onClick={() => setLobbyView("catalog")}>{t("catalogTab")}</button>
-        </nav>
-        <div className="header-right">
-          <LangToggle lang={lang} setLang={setLang} />
-          <button className="user-chip user-chip-btn" onClick={() => setAccountPopoverOpen((v) => !v)}>
-            {authUsername}
+      <nav className="side-rail">
+        <div className="side-rail-top">
+          <button className="side-rail-avatar-btn" onClick={() => setAccountPopoverOpen((v) => !v)} aria-label={t("account")}>
+            <span className="roster-avatar small">{(authUsername ?? "?").slice(0, 1).toUpperCase()}</span>
             {friends.incoming.length > 0 && <span className="fab-badge inline-badge" />}
           </button>
+          <LangToggle lang={lang} setLang={setLang} />
         </div>
-      </header>
+        <div className="side-rail-nav">
+          <button className={lobbyView === "catalog" ? "side-rail-btn active" : "side-rail-btn"} onClick={() => setLobbyView("catalog")}>
+            <IconGrid /><span>{t("catalogTab")}</span>
+          </button>
+          <button className={lobbyView === "rooms" ? "side-rail-btn active" : "side-rail-btn"} onClick={() => setLobbyView("rooms")}>
+            <IconRoomsNav /><span>{t("roomsTab")}</span>
+          </button>
+        </div>
+        <button className="side-rail-logout" onClick={logout} aria-label={t("logOut")}><IconLogout /></button>
+      </nav>
     )}
 
     {inLobby && (
@@ -1152,7 +1189,17 @@ export default function App() {
               ? `${UPLOAD_INFO[catalogConsole].label}, up to ${UPLOAD_INFO[catalogConsole].maxMB} MB`
               : t("uploadHint")}
           </span>
-          <label className="upload-drop">
+          <label
+            className={`upload-drop${dragActive ? " drag-active" : ""}${uploading ? " uploading" : ""}${uploadDone ? " upload-done" : ""}`}
+            onDragOver={(event) => { event.preventDefault(); if (!uploading) setDragActive(true); }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              setDragActive(false);
+              const file = event.dataTransfer.files?.[0];
+              if (file && !uploading) void uploadRom(file);
+            }}
+          >
             <input
               type="file"
               accept={catalogConsole !== "all" && UPLOAD_INFO[catalogConsole] ? UPLOAD_INFO[catalogConsole].exts.join(",") : ".nes,.sfc,.smc,.bin,.iso,.img,.pbp,.chd"}
@@ -1160,7 +1207,14 @@ export default function App() {
               onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadRom(file); event.target.value = ""; }}
               aria-label={t("uploadRom")}
             />
-            <span>{uploading ? t("uploading") : t("chooseFileDrop")}</span>
+            {uploading ? (
+              <div className="upload-progress">
+                <div className="upload-progress-track"><div className="upload-progress-fill" style={{ width: `${uploadProgress}%` }} /></div>
+                <span className="upload-progress-pct">{uploadProgress}%</span>
+              </div>
+            ) : (
+              <span>{uploadDone ? `✓ ${t("uploadDone")}` : t("chooseFileDrop")}</span>
+            )}
           </label>
           {uploadError && <p className="form-error">{uploadError}</p>}
         </div>

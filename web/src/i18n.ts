@@ -79,6 +79,7 @@ const dict = {
   uploadRom: { en: "Upload ROM", es: "Subir ROM" },
   uploadHint: { en: "Pick a console above to see its formats and size limit", es: "Elegí una consola arriba para ver sus formatos y límite de tamaño" },
   uploading: { en: "Uploading…", es: "Subiendo…" },
+  uploadDone: { en: "Uploaded", es: "Subido" },
   chooseFileDrop: { en: "Choose file or drop it here", es: "Elige un archivo o arrástralo aquí" },
   joinByCode: { en: "Join by code", es: "Unirse con código" },
   roomCodePlaceholder: { en: "room code", es: "código de sala" },
