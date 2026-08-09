@@ -318,7 +318,7 @@ const FEATURED_GAMES = [
 
 const HASHTAGS = ["#action", "#arcade", "#sports", "#platformer", "#indie", "#shooter", "#puzzle", "#shoot'em up", "#fighting"];
 
-function TouchButton({ label, className, onPress }: { label: string; className: string; onPress: (pressed: boolean) => void }) {
+function TouchButton({ label, className, onPress, style }: { label: string; className: string; onPress: (pressed: boolean) => void; style?: React.CSSProperties }) {
   const [held, setHeld] = useState(false);
   const pressedRef = useRef(false);
   const press = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -340,6 +340,7 @@ function TouchButton({ label, className, onPress }: { label: string; className: 
   return (
     <button
       className={held ? `${className} pressed` : className}
+      style={style}
       onPointerDown={press}
       onPointerUp={release}
       onPointerLeave={release}
@@ -351,27 +352,94 @@ function TouchButton({ label, className, onPress }: { label: string; className: 
   );
 }
 
-function TouchControls({ sendInput, layout, size }: { sendInput: (button: Button, pressed: boolean) => void; layout: "standard" | "swapped"; size: "compact" | "large" }) {
+type ControlPreset = { id: string; label: string; buttons: { id: Button; x: number; y: number; size: number; shape: "circle" | "rect" | "dpad" | "pill" }[] };
+const CONTROL_PRESETS: Record<string, ControlPreset> = {
+  nes: {
+    id: "nes", label: "NES",
+    buttons: [
+      { id: "UP", x: 52, y: 0, size: 52, shape: "dpad" },
+      { id: "DOWN", x: 52, y: 104, size: 52, shape: "dpad" },
+      { id: "LEFT", x: 0, y: 52, size: 52, shape: "dpad" },
+      { id: "RIGHT", x: 104, y: 52, size: 52, shape: "dpad" },
+      { id: "A", x: 220, y: 38, size: 62, shape: "circle" },
+      { id: "B", x: 148, y: 0, size: 62, shape: "circle" },
+      { id: "SELECT", x: 80, y: 170, size: 56, shape: "pill" },
+      { id: "START", x: 148, y: 170, size: 56, shape: "pill" },
+    ],
+  },
+  snes: {
+    id: "snes", label: "SNES",
+    buttons: [
+      { id: "UP", x: 52, y: 0, size: 52, shape: "dpad" },
+      { id: "DOWN", x: 52, y: 104, size: 52, shape: "dpad" },
+      { id: "LEFT", x: 0, y: 52, size: 52, shape: "dpad" },
+      { id: "RIGHT", x: 104, y: 52, size: 52, shape: "dpad" },
+      { id: "Y", x: 148, y: 0, size: 52, shape: "circle" },
+      { id: "X", x: 220, y: 38, size: 52, shape: "circle" },
+      { id: "B", x: 220, y: 110, size: 52, shape: "circle" },
+      { id: "A", x: 292, y: 74, size: 52, shape: "circle" },
+      { id: "SELECT", x: 80, y: 176, size: 52, shape: "pill" },
+      { id: "START", x: 148, y: 176, size: 52, shape: "pill" },
+    ],
+  },
+  ps1: {
+    id: "ps1", label: "PS1",
+    buttons: [
+      { id: "UP", x: 52, y: 0, size: 52, shape: "dpad" },
+      { id: "DOWN", x: 52, y: 104, size: 52, shape: "dpad" },
+      { id: "LEFT", x: 0, y: 52, size: 52, shape: "dpad" },
+      { id: "RIGHT", x: 104, y: 52, size: 52, shape: "dpad" },
+      { id: "Y", x: 148, y: 0, size: 50, shape: "circle" },
+      { id: "X", x: 220, y: 38, size: 50, shape: "circle" },
+      { id: "B", x: 220, y: 110, size: 50, shape: "circle" },
+      { id: "A", x: 292, y: 74, size: 50, shape: "circle" },
+      { id: "SELECT", x: 80, y: 176, size: 48, shape: "pill" },
+      { id: "START", x: 148, y: 176, size: 48, shape: "pill" },
+    ],
+  },
+};
+
+const PS1_SYMBOLS: Record<string, string> = { A: "✕", B: "○", Y: "△", X: "□" };
+const SNES_LABELS: Record<string, string> = { A: "A", B: "B", X: "X", Y: "Y" };
+
+function getButtonLabel(btn: Button, consoleId: string): string {
+  if (consoleId === "ps1") return PS1_SYMBOLS[btn] ?? btn;
+  if (consoleId === "snes") return SNES_LABELS[btn] ?? btn;
+  return btn;
+}
+
+function TouchControls({ sendInput, layout, size, consoleId = "ps1" }: { sendInput: (button: Button, pressed: boolean) => void; layout: "standard" | "swapped"; size: "compact" | "large"; consoleId?: string }) {
+  const preset = CONTROL_PRESETS[consoleId] ?? CONTROL_PRESETS.ps1;
+  const scale = size === "large" ? 1.15 : 1;
   return (
-    <div className={`touch-controls layout-${layout} size-${size}`}>
-      <div className="touch-dpad">
-        <TouchButton label="" className="touch-dpad-btn dpad-up" onPress={(p) => sendInput("UP", p)} />
-        <TouchButton label="" className="touch-dpad-btn dpad-down" onPress={(p) => sendInput("DOWN", p)} />
-        <TouchButton label="" className="touch-dpad-btn dpad-left" onPress={(p) => sendInput("LEFT", p)} />
-        <TouchButton label="" className="touch-dpad-btn dpad-right" onPress={(p) => sendInput("RIGHT", p)} />
-      </div>
-      <div className="touch-shoulders">
-        <TouchButton label="L" className="touch-shoulder-btn" onPress={(p) => sendInput("L", p)} />
-        <TouchButton label="R" className="touch-shoulder-btn" onPress={(p) => sendInput("R", p)} />
-      </div>
-      <div className="touch-actions">
-        <TouchButton label="B" className="touch-action-btn action-b" onPress={(p) => sendInput("B", p)} />
-        <TouchButton label="A" className="touch-action-btn action-a" onPress={(p) => sendInput("A", p)} />
-      </div>
-      <div className="touch-system">
-        <TouchButton label={"SELECT"} className="touch-system-btn" onPress={(p) => sendInput("SELECT", p)} />
-        <TouchButton label={"START"} className="touch-system-btn" onPress={(p) => sendInput("START", p)} />
-      </div>
+    <div className={`touch-controls layout-${layout} size-${size} console-${consoleId}`}>
+      {preset.buttons.map((btn) => (
+        <TouchButton
+          key={btn.id}
+          label={getButtonLabel(btn.id, consoleId)}
+          className={`touch-btn touch-${btn.shape} btn-${btn.id.toLowerCase()}`}
+          style={{
+            position: "absolute",
+            left: btn.x * scale,
+            top: btn.y * scale,
+            width: btn.size * scale,
+            height: btn.size * scale,
+          }}
+          onPress={(p) => sendInput(btn.id, p)}
+        />
+      ))}
+      {preset.buttons.some((b) => b.id === "L") && (
+        <div className="touch-shoulders">
+          <TouchButton label="L" className="touch-shoulder-btn" onPress={(p) => sendInput("L", p)} />
+          <TouchButton label="R" className="touch-shoulder-btn" onPress={(p) => sendInput("R", p)} />
+        </div>
+      )}
+      {preset.buttons.some((b) => b.id === "L2") && (
+        <div className="touch-shoulders-2">
+          <TouchButton label="L2" className="touch-shoulder-btn" onPress={(p) => sendInput("L2", p)} />
+          <TouchButton label="R2" className="touch-shoulder-btn" onPress={(p) => sendInput("R2", p)} />
+        </div>
+      )}
     </div>
   );
 }
@@ -2365,7 +2433,7 @@ export default function App() {
             )}
             {canvasToast && <div className="canvas-toast">{canvasToast}</div>}
           </div>
-          <TouchControls sendInput={sendInput} layout={touchLayout} size={touchSize} />
+          <TouchControls sendInput={sendInput} layout={touchLayout} size={touchSize} consoleId={activeConsole} />
           <button className="mobile-panel-fab" onClick={(e) => { e.stopPropagation(); setMobilePanelOpen(true); }} aria-label={t("players")}>
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" />

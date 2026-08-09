@@ -832,50 +832,70 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
     touch-action: none; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
     transition: transform .08s ease, background-color .08s ease, border-color .08s ease, box-shadow .08s ease;
   }
+  .touch-btn {
+    pointer-events: auto; display: flex; align-items: center; justify-content: center;
+    font-weight: 800; color: #fff; backdrop-filter: blur(8px);
+  }
+  /* D-Pad */
   .touch-dpad {
-    position: absolute; left: calc(14px + env(safe-area-inset-left)); bottom: calc(14px + env(safe-area-inset-bottom));
-    width: 148px; height: 148px; pointer-events: auto;
+    background: rgba(15, 23, 42, 0.7); border: 1.5px solid rgba(255,255,255,.15); border-radius: 14px;
   }
-  .touch-dpad-btn {
-    position: absolute; width: 52px; height: 52px; padding: 0;
-    background: rgba(15, 23, 42, 0.85); border: 1.5px solid rgba(255,255,255,.2); border-radius: 12px; color: #fff;
-    backdrop-filter: blur(8px);
+  .touch-dpad.pressed { background: rgba(0, 168, 255, 0.4); border-color: var(--cyan); box-shadow: 0 0 16px var(--cyan-glow); }
+  .touch-dpad::after {
+    content: ""; position: absolute; top: 50%; left: 50%; width: 16px; height: 16px;
+    transform: translate(-50%, -50%); border-radius: 4px;
+    background: rgba(255,255,255,.12); pointer-events: none;
   }
-  .touch-dpad-btn.pressed { background: rgba(0, 168, 255, 0.4); border-color: var(--cyan); transform: scale(.92); box-shadow: 0 0 16px var(--cyan-glow); }
-  .dpad-up { top: 0; left: 48px; }
-  .dpad-down { bottom: 0; left: 48px; }
-  .dpad-left { left: 0; top: 48px; }
-  .dpad-right { right: 0; top: 48px; }
+  /* Action buttons */
+  .touch-circle {
+    border-radius: 50%;
+    background: rgba(139, 92, 246, 0.35); border: 2px solid rgba(255,255,255,.25);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4); font-size: 18px;
+  }
+  .touch-circle.pressed { background: rgba(0, 168, 255, 0.75); border-color: #fff; transform: scale(.9); box-shadow: 0 0 20px var(--cyan); }
+  /* System buttons (pill) */
+  .touch-pill {
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.8); border: 1.5px solid rgba(255,255,255,.15);
+    font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase;
+  }
+  .touch-pill.pressed { background: rgba(139, 92, 246, 0.6); border-color: var(--signal); transform: scale(.92); }
+  /* Shoulder buttons */
   .touch-shoulders {
     position: absolute; top: calc(14px + env(safe-area-inset-top)); left: env(safe-area-inset-left); right: env(safe-area-inset-right);
     display: flex; justify-content: space-between; padding: 0 14px; pointer-events: none;
   }
   .touch-shoulder-btn {
     pointer-events: auto; width: 62px; height: 38px; padding: 0;
-    border-radius: 10px; background: rgba(15, 23, 42, 0.85); border: 1.5px solid rgba(255,255,255,.2); color: #fff; font-size: 12px; font-weight: 700;
+    border-radius: 10px; background: rgba(15, 23, 42, 0.85); border: 1.5px solid rgba(255,255,255,.2);
+    color: #fff; font-size: 12px; font-weight: 700;
   }
   .touch-shoulder-btn.pressed { background: rgba(139, 92, 246, 0.55); border-color: var(--signal); transform: scale(.92); box-shadow: 0 0 16px var(--signal-glow); }
-  .touch-actions {
-    position: absolute; right: calc(14px + env(safe-area-inset-right)); bottom: calc(14px + env(safe-area-inset-bottom));
-    width: 136px; height: 108px; pointer-events: auto;
+  .touch-shoulders-2 {
+    position: absolute; top: calc(58px + env(safe-area-inset-top)); left: env(safe-area-inset-left); right: env(safe-area-inset-right);
+    display: flex; justify-content: space-between; padding: 0 14px; pointer-events: none;
   }
-  .touch-action-btn {
-    position: absolute; width: 64px; height: 64px; padding: 0;
-    border-radius: 50%; background: rgba(139, 92, 246, 0.45); border: 2px solid rgba(255,255,255,.3); color: #fff; font-weight: 800; font-size: 18px;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.4); backdrop-filter: blur(8px);
-  }
-  .touch-action-btn.pressed { background: rgba(0, 168, 255, 0.75); border-color: #fff; transform: scale(.9); box-shadow: 0 0 20px var(--cyan); }
-  .action-b { left: 0; bottom: 0; }
-  .action-a { right: 0; bottom: 38px; }
-  .touch-system {
-    position: absolute; bottom: calc(196px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
-    display: flex; gap: 12px; pointer-events: auto;
-  }
-  .touch-system-btn {
-    padding: 8px 16px; font-size: 11px; font-weight: 800; border-radius: 999px;
-    background: rgba(15, 23, 42, 0.85); border: 1.5px solid rgba(255,255,255,.2); color: #fff;
-  }
-  .touch-system-btn.pressed { background: rgba(139, 92, 246, 0.6); border-color: var(--signal); transform: scale(.92); }
+  /* Console-specific button colors */
+  .console-ps1 .btn-a { background: rgba(0, 168, 255, 0.35); border-color: rgba(0, 168, 255, 0.5); }
+  .console-ps1 .btn-a.pressed { background: rgba(0, 168, 255, 0.8); }
+  .console-ps1 .btn-b { background: rgba(255, 42, 109, 0.35); border-color: rgba(255, 42, 109, 0.5); }
+  .console-ps1 .btn-b.pressed { background: rgba(255, 42, 109, 0.8); }
+  .console-ps1 .btn-y { background: rgba(0, 230, 118, 0.35); border-color: rgba(0, 230, 118, 0.5); }
+  .console-ps1 .btn-y.pressed { background: rgba(0, 230, 118, 0.8); }
+  .console-ps1 .btn-x { background: rgba(240, 147, 43, 0.35); border-color: rgba(240, 147, 43, 0.5); }
+  .console-ps1 .btn-x.pressed { background: rgba(240, 147, 43, 0.8); }
+  .console-snes .btn-a { background: rgba(255, 42, 109, 0.35); border-color: rgba(255, 42, 109, 0.5); }
+  .console-snes .btn-a.pressed { background: rgba(255, 42, 109, 0.8); }
+  .console-snes .btn-b { background: rgba(240, 147, 43, 0.35); border-color: rgba(240, 147, 43, 0.5); }
+  .console-snes .btn-b.pressed { background: rgba(240, 147, 43, 0.8); }
+  .console-snes .btn-x { background: rgba(0, 168, 255, 0.35); border-color: rgba(0, 168, 255, 0.5); }
+  .console-snes .btn-x.pressed { background: rgba(0, 168, 255, 0.8); }
+  .console-snes .btn-y { background: rgba(0, 230, 118, 0.35); border-color: rgba(0, 230, 118, 0.5); }
+  .console-snes .btn-y.pressed { background: rgba(0, 230, 118, 0.8); }
+  .console-nes .btn-a { background: rgba(255, 42, 109, 0.45); border-color: rgba(255, 42, 109, 0.6); }
+  .console-nes .btn-a.pressed { background: rgba(255, 42, 109, 0.85); }
+  .console-nes .btn-b { background: rgba(139, 92, 246, 0.45); border-color: rgba(139, 92, 246, 0.6); }
+  .console-nes .btn-b.pressed { background: rgba(139, 92, 246, 0.85); }
 }
 
 /* ── Social Inbox ─────────────────────────────────── */
@@ -1225,20 +1245,8 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
   }
 
   /* Touch controls mobile */
-  .touch-dpad { width: 130px; height: 130px; left: calc(12px + env(safe-area-inset-left)); bottom: calc(12px + env(safe-area-inset-bottom)); }
-  .touch-dpad-btn { width: 46px; height: 46px; border-radius: 10px; }
-  .dpad-up { left: 42px; }
-  .dpad-down { left: 42px; }
-  .dpad-left { top: 42px; }
-  .dpad-right { top: 42px; }
-
-  .touch-actions { width: 120px; height: 100px; right: calc(12px + env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); }
-  .touch-action-btn { width: 56px; height: 56px; font-size: 16px; }
-  .action-a { bottom: 34px; }
-
-  .touch-system { bottom: calc(180px + env(safe-area-inset-bottom)); }
-  .touch-system-btn { padding: 7px 14px; font-size: 10px; }
-
+  .touch-btn.touch-circle { font-size: 15px; }
+  .touch-btn.touch-pill { font-size: 9px; }
   .touch-shoulder-btn { width: 56px; height: 34px; font-size: 11px; font-weight: 800; }
 
   .social-panel {
