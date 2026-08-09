@@ -193,6 +193,9 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     }
     g_object_set(peer->webrtcbin, "bundle-policy", 3 /* GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE */, nullptr);
     g_object_set(peer->webrtcbin, "stun-server", "stun://stun.l.google.com:19302", nullptr);
+    // webrtcbin's internal jitterbuffer defaults to ~200ms of latency; on a low-loss LAN/VPS link that's
+    // pure added input/video lag with no benefit, so pull it down close to the wire.
+    g_object_set(peer->webrtcbin, "latency", 30 /* ms */, nullptr);
     // Drop old buffers instead of queueing them: a laggy peer should skip ahead rather than build up latency.
     // A single H.264 keyframe fragments into many RTP packets, so the buffer cap must stay generous —
     // too small and it drops mid-keyframe, which starves the decoder of anything to show at all.
@@ -213,14 +216,11 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     g_signal_connect(peer->webrtcbin, "on-ice-candidate", G_CALLBACK(on_ice_candidate), peer_ptr);
 
     GstWebRTCDataChannel *channel = nullptr;
-    // Unordered + unreliable: input is latency-sensitive per-frame state, not worth retransmitting or
-    // head-of-line-blocking behind a dropped packet the way a default ordered/reliable channel would.
-    GstStructure *channel_options = gst_structure_new("data-channel-options",
-        "ordered", G_TYPE_BOOLEAN, FALSE,
-        "max-retransmits", G_TYPE_INT, 0,
-        nullptr);
-    g_signal_emit_by_name(peer->webrtcbin, "create-data-channel", "input", channel_options, &channel);
-    gst_structure_free(channel_options);
+    // Keep this ordered/reliable: input messages are tiny (no head-of-line risk worth mentioning) and
+    // they encode discrete press/release transitions. Losing a "release" packet on an unreliable channel
+    // leaves the button stuck held down from the game-server's point of view — worse than a few ms of
+    // extra latency, which the jitterbuffer/queue tuning already addresses.
+    g_signal_emit_by_name(peer->webrtcbin, "create-data-channel", "input", nullptr, &channel);
     peer->data_channel = reinterpret_cast<GObject *>(channel);
     if (channel) {
         g_signal_connect(channel, "on-message-string", G_CALLBACK(on_data_channel_message), peer_ptr);

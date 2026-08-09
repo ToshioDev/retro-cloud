@@ -164,6 +164,10 @@ export default function App() {
   const [scale, setScale] = useState<string>(() => localStorage.getItem("rc_scale") ?? "fit");
   const [volume, setVolume] = useState<number>(() => Number(localStorage.getItem("rc_volume") ?? "100"));
   const [muted, setMuted] = useState<boolean>(() => localStorage.getItem("rc_muted") === "1");
+  const volumeRef = useRef(volume);
+  const mutedRef = useRef(muted);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
   const [intrinsicSize, setIntrinsicSize] = useState<{ w: number; h: number } | null>(null);
   const [roster, setRoster] = useState<RosterEntry[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -189,6 +193,7 @@ export default function App() {
     peerRef.current?.close();
     socketRef.current?.close();
     if (statsIntervalRef.current) window.clearInterval(statsIntervalRef.current);
+    void audioCtxRef.current?.close();
   }, []);
 
   useEffect(() => {
@@ -287,7 +292,10 @@ export default function App() {
       mediaStream.addTrack(event.track);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
+        videoRef.current.volume = volumeRef.current / 100;
+        videoRef.current.muted = mutedRef.current;
         void videoRef.current.play();
+        if (event.track.kind === "audio") setupAudioGraph(mediaStream);
       }
       setMediaState("Receiving media");
     };
@@ -376,6 +384,7 @@ export default function App() {
     socket.onclose = () => {
       socketRef.current = null; peerRef.current?.close(); peerRef.current = null;
       if (statsIntervalRef.current) { window.clearInterval(statsIntervalRef.current); statsIntervalRef.current = null; }
+      gainNodeRef.current = null;
       setRttMs(null);
       const maxAttempts = 6;
       if (shouldReconnectRef.current && reconnectAttemptsRef.current < maxAttempts) {
@@ -474,13 +483,36 @@ export default function App() {
     socketRef.current.send(JSON.stringify({ type: "transfer_host", room, payload: { targetPeerId } }));
   }
 
-  useEffect(() => {
-    if (videoRef.current) videoRef.current.volume = volume / 100;
-    localStorage.setItem("rc_volume", String(volume));
-  }, [volume]);
+  function setupAudioGraph(stream: MediaStream) {
+    if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
+    const ctx = audioCtxRef.current;
+    if (ctx.state === "suspended") void ctx.resume();
+    // A compressor normalizes perceived loudness so a lower slider position still sounds full/clear
+    // instead of just thin and quiet — makeup gain keeps the room's average level consistent.
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.value = -32;
+    compressor.knee.value = 18;
+    compressor.ratio.value = 6;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.25;
+    const gain = ctx.createGain();
+    gain.gain.value = mutedRef.current ? 0 : volumeRef.current / 100;
+    ctx.createMediaStreamSource(stream).connect(compressor).connect(gain).connect(ctx.destination);
+    gainNodeRef.current = gain;
+    if (videoRef.current) videoRef.current.muted = true; // audio now plays through the Web Audio graph above
+  }
 
   useEffect(() => {
-    if (videoRef.current) videoRef.current.muted = muted;
+    volumeRef.current = volume;
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = muted ? 0 : volume / 100;
+    else if (videoRef.current) videoRef.current.volume = volume / 100;
+    localStorage.setItem("rc_volume", String(volume));
+  }, [volume, muted]);
+
+  useEffect(() => {
+    mutedRef.current = muted;
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = muted ? 0 : volume / 100;
+    else if (videoRef.current) videoRef.current.muted = muted;
     localStorage.setItem("rc_muted", muted ? "1" : "0");
   }, [muted]);
 
@@ -530,15 +562,25 @@ export default function App() {
       return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
     };
     const down = (event: KeyboardEvent) => {
-      if (isTypingTarget(event.target)) return;
+      if (event.repeat || isTypingTarget(event.target)) return;
       const button = reverseMap[event.key]; if (button) { event.preventDefault(); sendInput(button, true); }
     };
     const up = (event: KeyboardEvent) => {
       if (isTypingTarget(event.target)) return;
       const button = reverseMap[event.key]; if (button) { event.preventDefault(); sendInput(button, false); }
     };
+    // If the window/tab loses focus while a key is held (alt-tab, clicking another element), no keyup
+    // ever fires — the game-server keeps thinking that button is held down forever. Release everything.
+    const releaseAll = () => { for (const button of buttons) sendInput(button, false); };
+    const onVisibility = () => { if (document.hidden) releaseAll(); };
     window.addEventListener("keydown", down); window.addEventListener("keyup", up);
-    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
+    window.addEventListener("blur", releaseAll);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("keydown", down); window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", releaseAll);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [keyBindings, rebinding]);
 
   const inLobby = status === "Disconnected";
