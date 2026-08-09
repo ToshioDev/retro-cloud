@@ -76,11 +76,27 @@ function IconRefresh() {
 }
 
 function TouchButton({ label, className, onPress }: { label: string; className: string; onPress: (pressed: boolean) => void }) {
-  const press = (event: ReactPointerEvent) => { event.preventDefault(); onPress(true); };
-  const release = (event: ReactPointerEvent) => { event.preventDefault(); onPress(false); };
+  const [held, setHeld] = useState(false);
+  const pressedRef = useRef(false);
+  const press = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    if (pressedRef.current) return; // ignore a stray second pointerdown for the same touch
+    pressedRef.current = true;
+    setHeld(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    if (navigator.vibrate) navigator.vibrate(8);
+    onPress(true);
+  };
+  const release = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    if (!pressedRef.current) return;
+    pressedRef.current = false;
+    setHeld(false);
+    onPress(false);
+  };
   return (
     <button
-      className={className}
+      className={held ? `${className} pressed` : className}
       onPointerDown={press}
       onPointerUp={release}
       onPointerLeave={release}
@@ -179,6 +195,7 @@ export default function App() {
   const myPeerIdRef = useRef<string | null>(null);
   const hostPeerIdRef = useRef<string | null>(null);
   const playerNumberRef = useRef<number>(1);
+  const heldButtonsRef = useRef<Set<Button>>(new Set());
   const shouldReconnectRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<number | null>(null);
@@ -275,6 +292,7 @@ export default function App() {
     setStatus("Connecting");
     myPeerIdRef.current = null;
     hostPeerIdRef.current = null;
+    heldButtonsRef.current.clear();
     setRoster([]);
     setChatMessages([]);
     const socket = new WebSocket(signalingUrl);
@@ -532,6 +550,11 @@ export default function App() {
   }, [chatMessages]);
 
   function sendInput(button: Button, pressed: boolean) {
+    // Dedupe: ignore a repeated "pressed" for a button already held (keyboard auto-repeat edge cases,
+    // overlapping touch + keyboard, etc.) so we never spam the channel or desync from the true state.
+    const isHeld = heldButtonsRef.current.has(button);
+    if (pressed === isHeld) return;
+    if (pressed) heldButtonsRef.current.add(button); else heldButtonsRef.current.delete(button);
     if (inputRef.current?.readyState !== "open") return;
     inputRef.current.send(JSON.stringify({ type: "input", player: playerNumberRef.current, button, pressed, timestamp: Date.now() }));
   }

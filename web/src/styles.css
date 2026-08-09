@@ -311,32 +311,40 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
 .touch-controls { display: none; }
 @media (pointer: coarse) {
   .touch-controls { display: block; position: absolute; inset: 0; z-index: 2; pointer-events: none; }
-  .touch-dpad { position: absolute; left: 14px; bottom: 14px; width: 132px; height: 132px; pointer-events: auto; }
+  .touch-controls button {
+    touch-action: none; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
+    transition: transform .08s ease, background-color .08s ease, border-color .08s ease;
+  }
+  .touch-dpad { position: absolute; left: 14px; bottom: 14px; width: 148px; height: 148px; pointer-events: auto; }
   .touch-dpad-btn {
-    position: absolute; width: 44px; height: 44px; padding: 0; touch-action: none;
+    position: absolute; width: 52px; height: 52px; padding: 0;
     background: rgba(20,23,31,.78); border: 1px solid rgba(255,255,255,.15); border-radius: 10px; color: #fff;
   }
-  .dpad-up { top: 0; left: 44px; }
-  .dpad-down { bottom: 0; left: 44px; }
-  .dpad-left { left: 0; top: 44px; }
-  .dpad-right { right: 0; top: 44px; }
+  .touch-dpad-btn.pressed { background: rgba(124,92,255,.55); border-color: var(--signal); transform: scale(.94); }
+  .dpad-up { top: 0; left: 48px; }
+  .dpad-down { bottom: 0; left: 48px; }
+  .dpad-left { left: 0; top: 48px; }
+  .dpad-right { right: 0; top: 48px; }
   .touch-shoulders { position: absolute; top: 14px; left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 14px; pointer-events: none; }
   .touch-shoulder-btn {
-    pointer-events: auto; touch-action: none; width: 54px; height: 32px; padding: 0;
+    pointer-events: auto; width: 58px; height: 36px; padding: 0;
     border-radius: 8px; background: rgba(20,23,31,.78); border: 1px solid rgba(255,255,255,.15); color: #fff; font-size: 11px; font-weight: 700;
   }
-  .touch-actions { position: absolute; right: 14px; bottom: 14px; width: 120px; height: 92px; pointer-events: auto; }
+  .touch-shoulder-btn.pressed { background: rgba(124,92,255,.55); border-color: var(--signal); transform: scale(.94); }
+  .touch-actions { position: absolute; right: 14px; bottom: 14px; width: 128px; height: 100px; pointer-events: auto; }
   .touch-action-btn {
-    position: absolute; width: 56px; height: 56px; padding: 0; touch-action: none;
-    border-radius: 50%; background: rgba(124,92,255,.38); border: 1px solid rgba(255,255,255,.25); color: #fff; font-weight: 700; font-size: 15px;
+    position: absolute; width: 62px; height: 62px; padding: 0;
+    border-radius: 50%; background: rgba(124,92,255,.38); border: 1px solid rgba(255,255,255,.25); color: #fff; font-weight: 700; font-size: 16px;
   }
+  .touch-action-btn.pressed { background: rgba(124,92,255,.75); border-color: #fff; transform: scale(.92); }
   .action-b { left: 0; bottom: 0; }
-  .action-a { right: 0; bottom: 32px; }
+  .action-a { right: 0; bottom: 36px; }
   .touch-system { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: auto; }
   .touch-system-btn {
-    padding: 6px 12px; touch-action: none; font-size: 10px; font-weight: 700; border-radius: 999px;
+    padding: 7px 14px; font-size: 10px; font-weight: 700; border-radius: 999px;
     background: rgba(20,23,31,.78); border: 1px solid rgba(255,255,255,.15); color: #fff;
   }
+  .touch-system-btn.pressed { background: rgba(124,92,255,.55); border-color: var(--signal); transform: scale(.94); }
 }
 
 @media (max-width: 900px) {
