@@ -127,6 +127,7 @@ export default function App() {
   const [chatInput, setChatInput] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [rttMs, setRttMs] = useState<number | null>(null);
+  const [latencyPopoverOpen, setLatencyPopoverOpen] = useState(false);
   const statsIntervalRef = useRef<number | null>(null);
   const myPeerIdRef = useRef<string | null>(null);
   const hostPeerIdRef = useRef<string | null>(null);
@@ -649,10 +650,38 @@ export default function App() {
         <div className="player-stage">
           <div className="player-topbar overlay-bar">
             <div className="brand brand-mini"><span className="brand-mark">◆</span><span className="brand-name">retro<em>deck</em></span></div>
-            <span className={`latency-pill ${status.includes("Connected") ? (rttMs === null ? "pending" : rttMs < 80 ? "good" : rttMs < 150 ? "ok" : "bad") : "down"}`}>
-              <span className="latency-bars"><span /><span /><span /></span>
-              {status.includes("Connected") ? (rttMs !== null ? `${rttMs} ms` : t("live")) : translate(lang, (statusKeys[status] as any) ?? "statusDisconnected")}
-            </span>
+            <div className="latency-wrap">
+              <button
+                className={`latency-pill ${status.includes("Connected") ? (rttMs === null ? "pending" : rttMs < 80 ? "good" : rttMs < 150 ? "ok" : "bad") : "down"}`}
+                onClick={() => setLatencyPopoverOpen((v) => !v)}
+              >
+                <span className="latency-bars"><span /><span /><span /></span>
+                {status.includes("Connected") && rttMs !== null ? `${rttMs}ms` : ""}
+              </button>
+              {latencyPopoverOpen && (
+                <>
+                  <div className="popover-backdrop" onClick={() => setLatencyPopoverOpen(false)} />
+                  <div className="latency-popover">
+                    <div className="latency-popover-row">
+                      <span>{t("connectionStatus")}</span>
+                      <span>{translate(lang, (statusKeys[status] as any) ?? "statusDisconnected")}</span>
+                    </div>
+                    <div className="latency-popover-row">
+                      <span>{t("latency")}</span>
+                      <span>{rttMs !== null ? `${rttMs} ms` : "—"}</span>
+                    </div>
+                    <div className="latency-popover-row">
+                      <span>{t("room")}</span>
+                      <span>{room}</span>
+                    </div>
+                    <div className="latency-popover-row">
+                      <span>{t("you")}</span>
+                      <span>P{playerNumber ?? 1}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
             {playerNumber && <span className="player-pill accent">P{playerNumber}</span>}
             <span className="player-pill muted">{room}</span>
             {authUsername === roomOwner && (

@@ -214,6 +214,18 @@ button:disabled { cursor: progress; opacity: .55; }
 .latency-pill.pending .latency-bars span { background: var(--mist); }
 .latency-pill.down { color: var(--mist); }
 .latency-pill.down .latency-bars span { background: var(--line); }
+
+.latency-wrap { position: relative; }
+.popover-backdrop { position: fixed; inset: 0; z-index: 4; }
+.latency-popover {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 5; width: 200px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px;
+  box-shadow: 0 20px 40px rgba(0,0,0,.5);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.latency-popover-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
+.latency-popover-row span:first-child { color: var(--mist); }
+.latency-popover-row span:last-child { color: var(--paper); font-family: var(--font-mono); font-weight: 600; }
 .player-pill.accent { background: var(--signal-dim); border-color: var(--signal); color: #d9cfff; font-weight: 700; font-family: var(--font-mono); }
 .player-pill.muted { color: var(--mist); font-family: var(--font-mono); }
 .icon-button { margin-left: auto; width: 36px; height: 36px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: rgba(20,23,31,.85); backdrop-filter: blur(6px); border: 1px solid var(--line); color: var(--mist); }

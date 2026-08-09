@@ -72,6 +72,8 @@ const dict = {
   publicHint: { en: "Anyone can see and join this room from the lobby.", es: "Cualquiera puede verla y unirse desde el lobby." },
   privateHint: { en: "Hidden from the room list — only joinable with the room code.", es: "Oculta de la lista — solo se puede entrar con el código." },
   deleteRom: { en: "Delete ROM", es: "Eliminar ROM" },
+  connectionStatus: { en: "Connection", es: "Conexión" },
+  latency: { en: "Latency", es: "Latencia" },
   shared: { en: "shared", es: "compartida" },
   you: { en: "you", es: "tú" },
   chat: { en: "Chat", es: "Chat" },
