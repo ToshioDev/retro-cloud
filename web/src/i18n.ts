@@ -69,6 +69,7 @@ const dict = {
   addEmailTitle: { en: "Add your email", es: "Agregá tu correo" },
   addEmailSub: { en: "We need an email on file for your account.", es: "Necesitamos un correo asociado a tu cuenta." },
   save: { en: "Save", es: "Guardar" },
+  later: { en: "Maybe later", es: "Después" },
   cancel: { en: "Cancel", es: "Cancelar" },
   layout: { en: "Layout", es: "Diseño" },
   handedness: { en: "Control side", es: "Lado de los controles" },

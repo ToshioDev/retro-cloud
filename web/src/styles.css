@@ -577,6 +577,67 @@ button:disabled { cursor: progress; opacity: .55; }
 
 /* Game modal */
 .settings-backdrop.game-modal-backdrop { align-items: center; justify-content: center; animation: fadeIn .2s ease both; }
+
+/* ── Email Prompt Dialog ──────────────────────────── */
+.email-backdrop {
+  align-items: center; justify-content: center;
+}
+.email-dialog {
+  background: var(--panel-solid); border: 1px solid var(--line); border-radius: 20px;
+  padding: 36px 28px 28px; width: 380px; max-width: 92vw;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
+  animation: modalIn .25s ease both;
+}
+.email-dialog-icon {
+  width: 64px; height: 64px; border-radius: 50%;
+  background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(0,168,255,0.1));
+  border: 1.5px solid rgba(139,92,246,0.2);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--signal); margin-bottom: 16px;
+}
+.email-dialog-title {
+  font-size: 20px; font-weight: 800; color: var(--paper); margin: 0 0 6px;
+}
+.email-dialog-sub {
+  font-size: 13px; color: var(--mist); margin: 0 0 20px; line-height: 1.5;
+}
+.email-input-wrap {
+  position: relative; width: 100%; margin-bottom: 4px;
+}
+.email-input-icon {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  color: rgba(255,255,255,.3); pointer-events: none;
+}
+.email-input {
+  width: 100%; padding: 12px 14px 12px 44px; border-radius: 12px;
+  background: rgba(255,255,255,.05); border: 1.5px solid rgba(255,255,255,.1);
+  color: var(--paper); font-size: 14px; font-family: var(--font-body);
+  outline: none; transition: border-color .15s;
+}
+.email-input:focus { border-color: var(--signal); }
+.email-input::placeholder { color: rgba(255,255,255,.25); }
+.email-error {
+  font-size: 12px; color: var(--danger); margin: 4px 0 0; text-align: left; width: 100%;
+}
+.email-save-btn {
+  width: 100%; padding: 13px; margin-top: 16px; border-radius: 12px; border: none;
+  background: linear-gradient(135deg, var(--signal), #7c3aed); color: #fff;
+  font-size: 14px; font-weight: 700; cursor: pointer;
+  transition: opacity .15s, transform .1s;
+}
+.email-save-btn:disabled { opacity: .4; cursor: default; }
+.email-save-btn:not(:disabled):hover { opacity: .9; }
+.email-save-btn:not(:disabled):active { transform: scale(.98); }
+.email-skip-btn {
+  background: none; border: none; color: rgba(255,255,255,.35); font-size: 13px;
+  margin-top: 10px; cursor: pointer; padding: 6px;
+}
+.email-skip-btn:hover { color: rgba(255,255,255,.6); }
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(16px) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .game-modal { width: min(500px, calc(100% - 32px)); max-height: 85vh; background: var(--panel-solid); border: 1px solid var(--line-bright); border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; animation: popIn .25s cubic-bezier(0.16, 1, 0.3, 1) both; box-shadow: 0 30px 60px rgba(0,0,0,0.6); }
 .game-modal-hero {

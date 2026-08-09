@@ -1682,25 +1682,39 @@ export default function App() {
     )}
 
     {emailPromptOpen && authToken && (
-      <div className="settings-backdrop">
-        <div className="settings-panel email-prompt">
-          <div className="settings-head">
-            <h2>{t("addEmailTitle")}</h2>
-            {profileEmail && <button className="icon-button" aria-label="Close" onClick={() => setEmailPromptOpen(false)}><IconClose /></button>}
+      <div className="settings-backdrop email-backdrop" onClick={() => profileEmail && setEmailPromptOpen(false)}>
+        <div className="email-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="email-dialog-icon">
+            <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="4" width="20" height="16" rx="3" />
+              <path d="M2 7l8.9 5.3a2 2 0 0 0 2.2 0L22 7" />
+            </svg>
           </div>
-          <p className="lobby-sub">{t("addEmailSub")}</p>
-          <input
-            className="field"
-            type="email"
-            value={emailInput}
-            onChange={(event) => setEmailInput(event.target.value)}
-            placeholder="you@example.com"
-            aria-label={t("email")}
-          />
-          {emailError && <p className="form-error">{emailError}</p>}
-          <button className="btn-primary" onClick={saveEmail} disabled={emailSaving || !emailInput.trim()}>
+          <h2 className="email-dialog-title">{t("addEmailTitle")}</h2>
+          <p className="email-dialog-sub">{t("addEmailSub")}</p>
+          <div className="email-input-wrap">
+            <svg className="email-input-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="4" width="20" height="16" rx="3" />
+              <path d="M2 7l8.9 5.3a2 2 0 0 0 2.2 0L22 7" />
+            </svg>
+            <input
+              className="email-input"
+              type="email"
+              value={emailInput}
+              onChange={(event) => setEmailInput(event.target.value)}
+              placeholder="you@example.com"
+              aria-label={t("email")}
+            />
+          </div>
+          {emailError && <p className="email-error">{emailError}</p>}
+          <button className="email-save-btn" onClick={saveEmail} disabled={emailSaving || !emailInput.trim()}>
             {emailSaving ? "…" : t("save")}
           </button>
+          {profileEmail && (
+            <button className="email-skip-btn" onClick={() => setEmailPromptOpen(false)}>
+              {t("later")}
+            </button>
+          )}
         </div>
       </div>
     )}
