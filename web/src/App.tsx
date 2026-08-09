@@ -989,13 +989,7 @@ export default function App() {
   return <main className={inLobby ? undefined : "in-room"}>
     {inLobby && (
       <nav className="side-rail">
-        <div className="side-rail-top">
-          <button className="side-rail-avatar-btn" onClick={() => setAccountPopoverOpen((v) => !v)} aria-label={t("account")}>
-            <span className="roster-avatar small">{(authUsername ?? "?").slice(0, 1).toUpperCase()}</span>
-            {friends.incoming.length > 0 && <span className="fab-badge inline-badge" />}
-          </button>
-          <LangToggle lang={lang} setLang={setLang} />
-        </div>
+        <div className="side-rail-brand"><span className="brand-mark">◆</span></div>
         <div className="side-rail-nav">
           <button className={lobbyView === "catalog" ? "side-rail-btn active" : "side-rail-btn"} onClick={() => setLobbyView("catalog")}>
             <IconGrid /><span>{t("catalogTab")}</span>
@@ -1004,7 +998,14 @@ export default function App() {
             <IconRoomsNav /><span>{t("roomsTab")}</span>
           </button>
         </div>
-        <button className="side-rail-logout" onClick={logout} aria-label={t("logOut")}><IconLogout /></button>
+        <div className="side-rail-bottom">
+          <LangToggle lang={lang} setLang={setLang} />
+          <button className="side-rail-avatar-btn" onClick={() => setAccountPopoverOpen((v) => !v)} aria-label={t("account")}>
+            <span className="roster-avatar small">{(authUsername ?? "?").slice(0, 1).toUpperCase()}</span>
+            {friends.incoming.length > 0 && <span className="fab-badge inline-badge" />}
+          </button>
+          <button className="side-rail-logout" onClick={logout} aria-label={t("logOut")}><IconLogout /></button>
+        </div>
       </nav>
     )}
 
