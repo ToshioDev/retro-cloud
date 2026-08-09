@@ -133,11 +133,7 @@ void WebRtcPipeline::start(unsigned width, unsigned height, double fps, unsigned
         // without a cap it would happily spin up as many threads as the *host* has cores and thrash
         // against its own quota — worse, it also competes with the emulator's own CPU budget in the same
         // container. Two encoder threads is plenty for 1080p60 at ultrafast and leaves room for the core.
-        // intra-refresh replaces the old periodic full I-frame (every key-int-max frames — a huge single
-        // packet burst that both spikes bandwidth and briefly stalls the queue below) with a steady trickle
-        // of small intra-coded slices instead. Same error-recovery guarantee, no more periodic size/latency
-        // spike — packets stay uniformly small, which is what actually matters for a slow connection.
-        "videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=ultrafast threads=2 intra-refresh=true bitrate=" + std::to_string(bitrate_kbps) +
+        "videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=ultrafast threads=2 bitrate=" + std::to_string(bitrate_kbps) +
         " key-int-max=60 bframes=0 ! h264parse config-interval=1 ! video/x-h264,stream-format=byte-stream,alignment=au ! rtph264pay config-interval=1 pt=96 ! "
         "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 ! tee name=video_tee allow-not-linked=true "
         // opusenc otherwise defaults to a much higher VBR target than game audio (chiptune/simple mixes,
@@ -209,12 +205,9 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     // pure added input/video lag with no benefit, so pull it down close to the wire.
     g_object_set(peer->webrtcbin, "latency", 30 /* ms */, nullptr);
     // Drop old buffers instead of queueing them: a laggy peer should skip ahead rather than build up
-    // latency — controls feeling "stuck"/floaty is exactly this, input landing against video that's
-    // seconds stale because the queue was allowed to fill up instead of dropping. Used to cap at 500ms to
-    // protect against dropping mid-keyframe (a single old-style I-frame fragments into many RTP packets),
-    // but x264enc now runs with intra-refresh instead of periodic full keyframes (see start()), so there's
-    // no more giant single frame to protect — safe to cap much tighter for a snappier, less "loose" feel.
-    g_object_set(peer->video_queue, "leaky", 2 /* downstream */, "max-size-buffers", 120, "max-size-time", (guint64)150000000 /* 150ms */, "max-size-bytes", 0, nullptr);
+    // latency. A single H.264 keyframe fragments into many RTP packets, so the buffer cap must stay
+    // generous — too small and it drops mid-keyframe, which starves the decoder of anything to show at all.
+    g_object_set(peer->video_queue, "leaky", 2 /* downstream */, "max-size-buffers", 300, "max-size-time", (guint64)500000000 /* 500ms */, "max-size-bytes", 0, nullptr);
     g_object_set(peer->audio_queue, "leaky", 2 /* downstream */, "max-size-buffers", 120, "max-size-time", (guint64)150000000 /* 150ms */, "max-size-bytes", 0, nullptr);
     gst_bin_add_many(GST_BIN(pipeline_), peer->webrtcbin, peer->video_queue, peer->audio_queue, nullptr);
     if (!gst_element_link(video_tee_, peer->video_queue) || !gst_element_link(peer->video_queue, peer->webrtcbin) ||
