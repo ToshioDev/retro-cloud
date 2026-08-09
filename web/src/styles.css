@@ -347,21 +347,48 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
   .touch-system-btn.pressed { background: rgba(124,92,255,.55); border-color: var(--signal); transform: scale(.94); }
 }
 
+/* Mobile in-room: full-bleed game screen, app-style bottom sheet for players/chat instead of a
+   squeezed sidebar, a floating action button to reach it, and a slimmer top HUD. */
+.mobile-panel-fab { display: none; }
+.mobile-panel-close { display: none; }
+.mobile-panel-backdrop { display: none; }
+
 @media (max-width: 900px) {
-  main.in-room { padding: 0; height: auto; overflow: visible; }
-  .room-layout { height: auto; }
-  .player-stage { height: 70vh; }
-  .social-panel { position: static; width: 100%; height: auto; border-left: none; border-top: 1px solid var(--line); }
-  .chat-block { min-height: 260px; }
-  .lobby-split { grid-template-columns: 1fr; }
-  .lobby-side { position: static; }
+  main.in-room { padding: 0; height: 100vh; overflow: hidden; }
+  .room-layout { height: 100%; }
+  .player-stage { height: 100%; }
+  .lang-toggle-desktop { display: none; }
+  .room-code-pill { display: none; }
+
+  .mobile-panel-fab {
+    display: flex; position: absolute; top: 64px; right: 14px; z-index: 3;
+    width: 46px; height: 46px; padding: 0; align-items: center; justify-content: center;
+    border-radius: 50%; background: rgba(20,23,31,.85); backdrop-filter: blur(6px);
+    border: 1px solid rgba(255,255,255,.15); color: #fff; pointer-events: auto;
+  }
+  .fab-badge { position: absolute; top: 8px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--signal); border: 2px solid var(--void); }
+
+  .mobile-panel-backdrop { display: block; z-index: 6; }
+  .mobile-panel-close {
+    display: flex; align-self: flex-end; width: 32px; height: 32px; padding: 0; margin-bottom: 4px;
+    align-items: center; justify-content: center; border-radius: 50%; background: var(--panel-raised); color: var(--mist);
+  }
+
+  .social-panel {
+    position: fixed; top: auto; bottom: 0; left: 0; right: 0; width: 100%; height: 72vh;
+    border-left: none; border-top: 1px solid var(--line); border-radius: 20px 20px 0 0;
+    z-index: 7; transform: translateY(100%); transition: transform .25s ease;
+    box-shadow: 0 -20px 50px rgba(0,0,0,.5);
+  }
+  .social-panel.mobile-open { transform: translateY(0); }
+  .chat-block { min-height: 0; }
 }
 @media (max-width: 640px) {
   .lobby-forms { grid-template-columns: 1fr; }
   .room-grid, .game-showcase { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
 }
 @media (max-width: 520px) {
-  main { padding-top: 24px; }
+  main:not(.in-room) { padding-top: 24px; }
   .brand-header { flex-direction: column; align-items: flex-start; gap: 10px; }
   .settings-panel { width: 100%; }
   .player-topbar.overlay-bar { flex-wrap: wrap; padding: 10px 12px; gap: 6px; }
