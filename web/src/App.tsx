@@ -164,7 +164,7 @@ export default function App() {
   const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem("rc_token"));
   const [authUsername, setAuthUsername] = useState<string | null>(() => localStorage.getItem("rc_username"));
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [authForm, setAuthForm] = useState({ username: "", password: "" });
+  const [authForm, setAuthForm] = useState({ username: "", password: "", email: "" });
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [status, setStatus] = useState("Disconnected");
@@ -209,6 +209,14 @@ export default function App() {
   const [latencyPopoverOpen, setLatencyPopoverOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
+  const [profileEmail, setProfileEmail] = useState<string | null>(null);
+  const [emailPromptOpen, setEmailPromptOpen] = useState(false);
+  const [emailInput, setEmailInput] = useState("");
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailError, setEmailError] = useState("");
+  const [friends, setFriends] = useState<{ friends: string[]; incoming: string[]; outgoing: string[] }>({ friends: [], incoming: [], outgoing: [] });
+  const [addFriendInput, setAddFriendInput] = useState("");
+  const [friendError, setFriendError] = useState("");
   const statsIntervalRef = useRef<number | null>(null);
   const myPeerIdRef = useRef<string | null>(null);
   const hostPeerIdRef = useRef<string | null>(null);
@@ -455,13 +463,101 @@ export default function App() {
       localStorage.setItem("rc_username", authForm.username);
       setAuthToken(data.token);
       setAuthUsername(authForm.username);
-      setAuthForm({ username: "", password: "" });
+      setAuthForm({ username: "", password: "", email: "" });
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "authentication failed");
     } finally {
       setAuthLoading(false);
     }
   }
+
+  async function refreshFriends() {
+    if (!authToken) return;
+    try {
+      const response = await fetch(`${apiBase}/friends`, { headers: { authorization: `Bearer ${authToken}` } });
+      if (response.ok) setFriends(await response.json());
+    } catch {
+      // ignore transient failures
+    }
+  }
+
+  async function saveEmail() {
+    if (!authToken || !emailInput.trim()) return;
+    setEmailSaving(true);
+    setEmailError("");
+    try {
+      const response = await fetch(`${apiBase}/auth/email`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ email: emailInput.trim() }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? "failed to save email");
+      }
+      setProfileEmail(emailInput.trim());
+      setEmailPromptOpen(false);
+    } catch (error) {
+      setEmailError(error instanceof Error ? error.message : "failed to save email");
+    } finally {
+      setEmailSaving(false);
+    }
+  }
+
+  async function sendFriendRequest() {
+    if (!authToken || !addFriendInput.trim()) return;
+    setFriendError("");
+    try {
+      const response = await fetch(`${apiBase}/friends/request`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ username: addFriendInput.trim() }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? "failed to send friend request");
+      }
+      setAddFriendInput("");
+      await refreshFriends();
+    } catch (error) {
+      setFriendError(error instanceof Error ? error.message : "failed to send friend request");
+    }
+  }
+
+  async function respondFriendRequest(username: string, accept: boolean) {
+    if (!authToken) return;
+    await fetch(`${apiBase}/friends/respond`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ username, accept }),
+    });
+    await refreshFriends();
+  }
+
+  async function removeFriend(username: string) {
+    if (!authToken) return;
+    await fetch(`${apiBase}/friends/${encodeURIComponent(username)}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${authToken}` },
+    });
+    await refreshFriends();
+  }
+
+  useEffect(() => {
+    if (!authToken) { setProfileEmail(null); return; }
+    (async () => {
+      try {
+        const response = await fetch(`${apiBase}/auth/me`, { headers: { authorization: `Bearer ${authToken}` } });
+        if (!response.ok) return;
+        const profile = await response.json() as { email: string | null };
+        setProfileEmail(profile.email);
+        if (!profile.email) setEmailPromptOpen(true);
+      } catch {
+        // ignore transient failures
+      }
+      void refreshFriends();
+    })();
+  }, [authToken]);
 
   function logout() {
     if (authToken) void fetch(`${apiBase}/auth/logout`, { method: "POST", headers: { authorization: `Bearer ${authToken}` } });
@@ -674,9 +770,15 @@ export default function App() {
           <div className="auth-form">
             <label className="auth-field-label" htmlFor="auth-username">{t("username")}</label>
             <input id="auth-username" className="field" value={authForm.username} onChange={(e) => setAuthForm((f) => ({ ...f, username: e.target.value }))} placeholder={t("usernamePlaceholder")} aria-label={t("username")} autoComplete="username" />
+            {authMode === "register" && (
+              <>
+                <label className="auth-field-label" htmlFor="auth-email">{t("email")}</label>
+                <input id="auth-email" className="field" type="email" value={authForm.email} onChange={(e) => setAuthForm((f) => ({ ...f, email: e.target.value }))} placeholder="you@example.com" aria-label={t("email")} autoComplete="email" />
+              </>
+            )}
             <label className="auth-field-label" htmlFor="auth-password">{t("password")}</label>
             <input id="auth-password" className="field" type="password" value={authForm.password} onChange={(e) => setAuthForm((f) => ({ ...f, password: e.target.value }))} placeholder="••••••••" aria-label={t("password")} autoComplete={authMode === "login" ? "current-password" : "new-password"} />
-            <button className="btn-primary" onClick={submitAuth} disabled={authLoading || !authForm.username || !authForm.password}>
+            <button className="btn-primary" onClick={submitAuth} disabled={authLoading || !authForm.username || !authForm.password || (authMode === "register" && !authForm.email)}>
               {authLoading ? "…" : authMode === "login" ? t("logIn") : t("createAccountBtn")}
             </button>
           </div>
@@ -702,7 +804,10 @@ export default function App() {
         </nav>
         <div className="header-right">
           <LangToggle lang={lang} setLang={setLang} />
-          <span className="user-chip">{authUsername}<button className="link-button" onClick={logout}>{t("logOut")}</button></span>
+          <button className="user-chip user-chip-btn" onClick={() => setAccountPopoverOpen((v) => !v)}>
+            {authUsername}
+            {friends.incoming.length > 0 && <span className="fab-badge inline-badge" />}
+          </button>
         </div>
       </header>
     )}
@@ -718,21 +823,92 @@ export default function App() {
           <span>{t("catalogTab")}</span>
         </button>
         <button className="bottom-tab" onClick={() => setAccountPopoverOpen(true)}>
-          <span className="roster-avatar small">{(authUsername ?? "?").slice(0, 1).toUpperCase()}</span>
+          <span className="roster-avatar small" style={{ position: "relative" }}>
+            {(authUsername ?? "?").slice(0, 1).toUpperCase()}
+            {friends.incoming.length > 0 && <span className="fab-badge inline-badge" />}
+          </span>
           <span>{t("account")}</span>
         </button>
       </nav>
     )}
 
-    {accountPopoverOpen && (
+    {inLobby && accountPopoverOpen && (
       <>
         <div className="popover-backdrop" onClick={() => setAccountPopoverOpen(false)} />
         <div className="account-popover">
           <p className="account-popover-name">{authUsername}</p>
+          <p className="account-popover-email">
+            {profileEmail ?? t("noEmailSet")}
+            <button className="link-button" onClick={() => { setEmailInput(profileEmail ?? ""); setEmailPromptOpen(true); setAccountPopoverOpen(false); }}>{t("edit")}</button>
+          </p>
+
+          <div className="friends-block">
+            <p className="settings-label">{t("friends")} · {friends.friends.length}</p>
+            {friends.incoming.length > 0 && (
+              <ul className="friend-list">
+                {friends.incoming.map((name) => (
+                  <li key={name} className="friend-row">
+                    <span className="roster-avatar small">{name.slice(0, 1).toUpperCase()}</span>
+                    <span className="friend-name">{name}</span>
+                    <button className="btn-primary friend-accept" onClick={() => respondFriendRequest(name, true)}>{t("accept")}</button>
+                    <button className="link-button" onClick={() => respondFriendRequest(name, false)}>{t("decline")}</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {friends.friends.length > 0 && (
+              <ul className="friend-list">
+                {friends.friends.map((name) => (
+                  <li key={name} className="friend-row">
+                    <span className="roster-avatar small">{name.slice(0, 1).toUpperCase()}</span>
+                    <span className="friend-name">{name}</span>
+                    <button className="link-button" onClick={() => removeFriend(name)}>{t("remove")}</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="form-row">
+              <input
+                className="field"
+                value={addFriendInput}
+                onChange={(event) => setAddFriendInput(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") sendFriendRequest(); }}
+                placeholder={t("addFriendPlaceholder")}
+                aria-label={t("addFriendPlaceholder")}
+              />
+              <button className="btn-ghost" onClick={sendFriendRequest} disabled={!addFriendInput.trim()}>{t("add")}</button>
+            </div>
+            {friendError && <p className="form-error">{friendError}</p>}
+          </div>
+
           <LangToggle lang={lang} setLang={setLang} />
           <button className="btn-danger account-popover-logout" onClick={logout}>{t("logOut")}</button>
         </div>
       </>
+    )}
+
+    {emailPromptOpen && authToken && (
+      <div className="settings-backdrop">
+        <div className="settings-panel email-prompt">
+          <div className="settings-head">
+            <h2>{t("addEmailTitle")}</h2>
+            {profileEmail && <button className="icon-button" aria-label="Close" onClick={() => setEmailPromptOpen(false)}><IconClose /></button>}
+          </div>
+          <p className="lobby-sub">{t("addEmailSub")}</p>
+          <input
+            className="field"
+            type="email"
+            value={emailInput}
+            onChange={(event) => setEmailInput(event.target.value)}
+            placeholder="you@example.com"
+            aria-label={t("email")}
+          />
+          {emailError && <p className="form-error">{emailError}</p>}
+          <button className="btn-primary" onClick={saveEmail} disabled={emailSaving || !emailInput.trim()}>
+            {emailSaving ? "…" : t("save")}
+          </button>
+        </div>
+      </div>
     )}
 
     {inLobby && lobbyView === "rooms" && (

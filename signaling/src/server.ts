@@ -194,15 +194,22 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
       if (peer.role === "host") { hostedRooms.add(peer.room); continue; }
       peerCounts.set(peer.room, (peerCounts.get(peer.room) ?? 0) + 1);
     }
-    const activeRooms = [...hostedRooms]
-      .filter((room) => roomOwners.has(room))
-      .filter((room) => roomVisibility.get(room) === "public" || roomOwners.get(room) === requester)
-      .map((room) => ({
-        room,
-        peerCount: peerCounts.get(room) ?? 0,
-        owner: roomOwners.get(room) ?? null,
-        visibility: roomVisibility.get(room) ?? "public",
-      }));
+    const candidateRooms = [...hostedRooms].filter((room) => roomOwners.has(room));
+    const visibleRooms: string[] = [];
+    for (const room of candidateRooms) {
+      if (roomVisibility.get(room) === "public" || roomOwners.get(room) === requester) {
+        visibleRooms.push(room);
+        continue;
+      }
+      const owner = roomOwners.get(room);
+      if (requester && owner && (await auth.areFriends(requester, owner))) visibleRooms.push(room);
+    }
+    const activeRooms = visibleRooms.map((room) => ({
+      room,
+      peerCount: peerCounts.get(room) ?? 0,
+      owner: roomOwners.get(room) ?? null,
+      visibility: roomVisibility.get(room) ?? "public",
+    }));
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({ rooms: activeRooms }));
     return;
@@ -292,9 +299,9 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     return;
   }
   if (request.method === "POST" && request.url === "/auth/register") {
-    readJsonBody<{ username?: string; password?: string }>(request)
+    readJsonBody<{ username?: string; password?: string; email?: string }>(request)
       .then(async (body) => {
-        const { token } = await auth.register(String(body.username ?? ""), String(body.password ?? ""));
+        const { token } = await auth.register(String(body.username ?? ""), String(body.password ?? ""), String(body.email ?? ""));
         response.writeHead(201, { "content-type": "application/json" });
         response.end(JSON.stringify({ token, username: body.username }));
       })
@@ -319,6 +326,100 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
   }
   if (request.method === "POST" && request.url === "/auth/logout") {
     await auth.logout(bearerToken(request));
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+  if (request.method === "GET" && request.url === "/auth/me") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const profile = await auth.getProfile(username);
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(profile));
+    return;
+  }
+  if (request.method === "POST" && request.url === "/auth/email") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    readJsonBody<{ email?: string }>(request)
+      .then(async (body) => {
+        await auth.setEmail(username, String(body.email ?? ""));
+        response.writeHead(204);
+        response.end();
+      })
+      .catch((error) => {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to set email" }));
+      });
+    return;
+  }
+  if (request.method === "GET" && request.url === "/friends") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const list = await auth.listFriends(username);
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(list));
+    return;
+  }
+  if (request.method === "POST" && request.url === "/friends/request") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    readJsonBody<{ username?: string }>(request)
+      .then(async (body) => {
+        await auth.sendFriendRequest(username, String(body.username ?? ""));
+        response.writeHead(204);
+        response.end();
+      })
+      .catch((error) => {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to send friend request" }));
+      });
+    return;
+  }
+  if (request.method === "POST" && request.url === "/friends/respond") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    readJsonBody<{ username?: string; accept?: boolean }>(request)
+      .then(async (body) => {
+        await auth.respondFriendRequest(username, String(body.username ?? ""), !!body.accept);
+        response.writeHead(204);
+        response.end();
+      })
+      .catch((error) => {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to respond to friend request" }));
+      });
+    return;
+  }
+  if (request.method === "DELETE" && request.url?.startsWith("/friends/")) {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const other = decodeURIComponent(request.url.slice("/friends/".length).split("?")[0]);
+    await auth.removeFriend(username, other);
     response.writeHead(204);
     response.end();
     return;

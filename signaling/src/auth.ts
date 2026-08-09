@@ -2,6 +2,7 @@ import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { Pool } from "pg";
 
 const usernamePattern = /^[a-zA-Z0-9_]{3,24}$/;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
@@ -10,12 +11,21 @@ const ready = pool.query(`
     username text PRIMARY KEY,
     salt text NOT NULL,
     hash text NOT NULL,
+    email text UNIQUE,
     created_at timestamptz NOT NULL DEFAULT now()
   );
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS email text UNIQUE;
   CREATE TABLE IF NOT EXISTS sessions (
     token text PRIMARY KEY,
     username text NOT NULL REFERENCES users(username) ON DELETE CASCADE,
     created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS friend_requests (
+    requester text NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    addressee text NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    status text NOT NULL DEFAULT 'pending',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (requester, addressee)
   );
 `).catch((error) => {
   console.error("[AUTH] failed to initialize database schema:", error instanceof Error ? error.message : error);
@@ -26,7 +36,7 @@ function hashPassword(password: string, salt: string): string {
   return scryptSync(password, salt, 64).toString("hex");
 }
 
-export async function register(username: string, password: string): Promise<{ token: string }> {
+export async function register(username: string, password: string, email: string): Promise<{ token: string }> {
   await ready;
   if (!usernamePattern.test(username)) {
     throw new Error("username must be 3-24 characters: letters, numbers, underscore");
@@ -34,13 +44,20 @@ export async function register(username: string, password: string): Promise<{ to
   if (password.length < 6) {
     throw new Error("password must be at least 6 characters");
   }
+  if (!emailPattern.test(email)) {
+    throw new Error("a valid email is required");
+  }
   const existing = await pool.query("SELECT 1 FROM users WHERE username = $1", [username]);
   if ((existing.rowCount ?? 0) > 0) {
     throw new Error("username is already taken");
   }
+  const existingEmail = await pool.query("SELECT 1 FROM users WHERE email = $1", [email]);
+  if ((existingEmail.rowCount ?? 0) > 0) {
+    throw new Error("email is already in use");
+  }
   const salt = randomBytes(16).toString("hex");
   const hash = hashPassword(password, salt);
-  await pool.query("INSERT INTO users (username, salt, hash) VALUES ($1, $2, $3)", [username, salt, hash]);
+  await pool.query("INSERT INTO users (username, salt, hash, email) VALUES ($1, $2, $3, $4)", [username, salt, hash, email]);
   return { token: await createSession(username) };
 }
 
@@ -78,4 +95,108 @@ export async function logout(token: string | undefined): Promise<void> {
   if (!token) return;
   await ready;
   await pool.query("DELETE FROM sessions WHERE token = $1", [token]);
+}
+
+export async function getProfile(username: string): Promise<{ username: string; email: string | null }> {
+  await ready;
+  const result = await pool.query<{ email: string | null }>("SELECT email FROM users WHERE username = $1", [username]);
+  if (!result.rows[0]) throw new Error("user not found");
+  return { username, email: result.rows[0].email };
+}
+
+export async function setEmail(username: string, email: string): Promise<void> {
+  await ready;
+  if (!emailPattern.test(email)) {
+    throw new Error("a valid email is required");
+  }
+  const existingEmail = await pool.query("SELECT 1 FROM users WHERE email = $1 AND username <> $2", [email, username]);
+  if ((existingEmail.rowCount ?? 0) > 0) {
+    throw new Error("email is already in use");
+  }
+  await pool.query("UPDATE users SET email = $1 WHERE username = $2", [email, username]);
+}
+
+function assertKnownUser(username: string) {
+  return pool.query("SELECT 1 FROM users WHERE username = $1", [username]).then((result) => {
+    if ((result.rowCount ?? 0) === 0) throw new Error("user not found");
+  });
+}
+
+export async function sendFriendRequest(from: string, to: string): Promise<void> {
+  await ready;
+  if (from === to) throw new Error("you can't friend yourself");
+  await assertKnownUser(to);
+  const reverse = await pool.query(
+    "SELECT status FROM friend_requests WHERE requester = $1 AND addressee = $2",
+    [to, from],
+  );
+  if (reverse.rows[0]?.status === "pending") {
+    await pool.query(
+      "UPDATE friend_requests SET status = 'accepted' WHERE requester = $1 AND addressee = $2",
+      [to, from],
+    );
+    return;
+  }
+  if (reverse.rows[0]?.status === "accepted") return;
+  await pool.query(
+    `INSERT INTO friend_requests (requester, addressee, status) VALUES ($1, $2, 'pending')
+     ON CONFLICT (requester, addressee) DO UPDATE SET status = 'pending'`,
+    [from, to],
+  );
+}
+
+export async function respondFriendRequest(username: string, from: string, accept: boolean): Promise<void> {
+  await ready;
+  if (accept) {
+    const result = await pool.query(
+      "UPDATE friend_requests SET status = 'accepted' WHERE requester = $1 AND addressee = $2 AND status = 'pending'",
+      [from, username],
+    );
+    if (result.rowCount === 0) throw new Error("no pending request from that user");
+  } else {
+    await pool.query("DELETE FROM friend_requests WHERE requester = $1 AND addressee = $2", [from, username]);
+  }
+}
+
+export async function removeFriend(username: string, other: string): Promise<void> {
+  await ready;
+  await pool.query(
+    "DELETE FROM friend_requests WHERE (requester = $1 AND addressee = $2) OR (requester = $2 AND addressee = $1)",
+    [username, other],
+  );
+}
+
+export async function listFriends(username: string): Promise<{
+  friends: string[];
+  incoming: string[];
+  outgoing: string[];
+}> {
+  await ready;
+  const accepted = await pool.query<{ requester: string; addressee: string }>(
+    "SELECT requester, addressee FROM friend_requests WHERE (requester = $1 OR addressee = $1) AND status = 'accepted'",
+    [username],
+  );
+  const incoming = await pool.query<{ requester: string }>(
+    "SELECT requester FROM friend_requests WHERE addressee = $1 AND status = 'pending'",
+    [username],
+  );
+  const outgoing = await pool.query<{ addressee: string }>(
+    "SELECT addressee FROM friend_requests WHERE requester = $1 AND status = 'pending'",
+    [username],
+  );
+  return {
+    friends: accepted.rows.map((row) => (row.requester === username ? row.addressee : row.requester)),
+    incoming: incoming.rows.map((row) => row.requester),
+    outgoing: outgoing.rows.map((row) => row.addressee),
+  };
+}
+
+export async function areFriends(a: string, b: string): Promise<boolean> {
+  await ready;
+  const result = await pool.query(
+    `SELECT 1 FROM friend_requests WHERE status = 'accepted'
+     AND ((requester = $1 AND addressee = $2) OR (requester = $2 AND addressee = $1))`,
+    [a, b],
+  );
+  return (result.rowCount ?? 0) > 0;
 }

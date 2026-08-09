@@ -32,6 +32,8 @@ main.in-room { width: 100%; max-width: none; margin: 0; padding: 0 320px 0 0; he
 .brand-name { font-family: var(--font-display); font-weight: 600; font-size: 21px; letter-spacing: -.02em; color: var(--paper); }
 .brand-name em { font-style: normal; color: var(--signal); }
 .user-chip { display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-size: 13px; color: var(--mist); }
+.user-chip-btn { position: relative; cursor: pointer; color: var(--paper); font-weight: 600; }
+.inline-badge { position: static; margin-left: 6px; display: inline-block; }
 .header-right { display: flex; align-items: center; gap: 10px; }
 .brand-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
@@ -140,7 +142,21 @@ button:disabled { cursor: progress; opacity: .55; }
 
 /* App-style bottom tab bar — mobile lobby navigation only */
 .bottom-tab-bar { display: none; }
-.account-popover { display: none; }
+.account-popover {
+  display: flex; flex-direction: column; gap: 12px; position: fixed; top: 70px; right: 24px; z-index: 9;
+  width: min(300px, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px;
+  box-shadow: 0 20px 40px rgba(0,0,0,.5);
+}
+.account-popover-name { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 15px; }
+.account-popover-email { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -6px 0 0; color: var(--mist); font-size: 13px; }
+.account-popover-logout { width: 100%; text-align: center; }
+.friends-block { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.friend-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.friend-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.friend-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--paper); }
+.friend-accept { padding: 5px 10px; font-size: 11px; }
+.email-prompt { max-width: 360px; margin: auto; height: auto; border-radius: 16px; gap: 12px; }
 
 .stat-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
 .stat-card { padding: 14px 16px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
@@ -497,13 +513,7 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
   .bottom-tab.active { color: var(--signal); }
   .bottom-tab .roster-avatar { margin-bottom: 1px; }
 
-  .account-popover {
-    display: flex; flex-direction: column; gap: 12px; position: fixed; bottom: 76px; left: 14px; right: 14px; z-index: 9;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px;
-    box-shadow: 0 20px 40px rgba(0,0,0,.5);
-  }
-  .account-popover-name { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 15px; }
-  .account-popover-logout { width: 100%; text-align: center; }
+  .account-popover { top: auto; bottom: 76px; left: 14px; right: 14px; width: auto; }
 }
 @media (max-width: 640px) {
   .lobby-forms { grid-template-columns: 1fr; }
