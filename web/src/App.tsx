@@ -259,7 +259,10 @@ export default function App() {
   const rebindingGamepadRef = useRef<Button | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"display" | "audio" | "controls">("display");
-  const [scale, setScale] = useState<string>(() => localStorage.getItem("rc_scale") ?? "fit");
+  // Always start each session on "Fit" rather than remembering a pixel-exact zoom: a stuck 1x/2x/3x choice
+  // from a past session renders the stream tiny in a corner of a modern widescreen viewport, which reads
+  // as broken rather than intentional. The picker in Settings > Display still lets a session opt into it.
+  const [scale, setScale] = useState<string>("fit");
   const [touchLayout, setTouchLayout] = useState<"standard" | "swapped">(() => (localStorage.getItem("rc_touch_layout") === "swapped" ? "swapped" : "standard"));
   const [touchSize, setTouchSize] = useState<"compact" | "large">(() => (localStorage.getItem("rc_touch_size") === "large" ? "large" : "compact"));
   const [isTouchDevice] = useState(() => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches);
@@ -790,9 +793,6 @@ export default function App() {
     localStorage.setItem("rc_muted", muted ? "1" : "0");
   }, [muted]);
 
-  useEffect(() => {
-    localStorage.setItem("rc_scale", scale);
-  }, [scale]);
 
   useEffect(() => { localStorage.setItem("rc_touch_layout", touchLayout); }, [touchLayout]);
   useEffect(() => { localStorage.setItem("rc_touch_size", touchSize); }, [touchSize]);
