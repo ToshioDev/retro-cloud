@@ -386,6 +386,21 @@ button:disabled { cursor: progress; opacity: .55; }
 .stage-fixed { width: 100%; height: 100%; overflow: hidden; padding: 12px; display: flex; justify-content: center; align-items: center; }
 .stage-canvas { cursor: grab; touch-action: none; }
 .stage-canvas.dragging { cursor: grabbing; }
+.stage-canvas.locked { cursor: default; touch-action: auto; }
+
+.canvas-hint {
+  position: absolute; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 2;
+  display: flex; align-items: center; gap: 7px; padding: 9px 16px; border-radius: 999px;
+  background: rgba(20,23,31,.85); backdrop-filter: blur(6px); border: 1px solid var(--line);
+  color: var(--paper); font-size: 12.5px; font-weight: 600; pointer-events: none;
+  animation: fadeIn .2s ease both;
+}
+.canvas-toast {
+  position: absolute; top: calc(20px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 2;
+  padding: 8px 16px; border-radius: 999px; background: var(--signal); color: #fff; font-size: 12.5px; font-weight: 700;
+  pointer-events: none; animation: popIn .15s ease both;
+}
+.canvas-lock-btn { width: 100%; margin-top: 8px; display: flex; align-items: center; justify-content: center; gap: 7px; }
 .stage-fit .stage-canvas { width: 100%; height: 100%; }
 .stage-fit .stage-canvas video { width: 100%; height: 100%; object-fit: contain; }
 .stage-fixed .stage-canvas { display: inline-block; }

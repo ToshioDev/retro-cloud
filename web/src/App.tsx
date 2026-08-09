@@ -72,6 +72,19 @@ function loadGamepadBindingsByGame(): Record<string, Partial<Record<Button, numb
   }
 }
 
+// Unlike the passive "remembered zoom" that used to get stuck across sessions, a locked position is an
+// explicit save the user opted into (via the pin button) — so, unlike scale, it's fine for this one to
+// persist and restore automatically.
+type LockedCanvas = { locked: true; x: number; y: number; zoom: number };
+function loadLockedCanvas(): LockedCanvas | null {
+  try {
+    const stored = JSON.parse(localStorage.getItem("rc_canvas_lock") ?? "null");
+    return stored?.locked ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
 const statusKeys: Record<string, string> = {
   Disconnected: "statusDisconnected",
   Connecting: "statusConnecting",
@@ -123,6 +136,22 @@ function IconVolume({ muted }: { muted: boolean }) {
     <path d="M4 9v6h4l5 4V5L8 9H4Z" />
     {muted ? <path d="M16 9l5 6M21 9l-5 6" /> : <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a9 9 0 0 1 0 12" />}
   </svg>;
+}
+function IconMove() {
+  return <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2v20M2 12h20M5 9l-3 3 3 3M19 9l3 3-3 3M9 5l3-3 3 3M9 19l3 3 3-3" />
+  </svg>;
+}
+function IconPin({ locked }: { locked: boolean }) {
+  return locked ? (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 7.5-2" />
+    </svg>
+  );
 }
 function IconRefresh() {
   return <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -290,9 +319,12 @@ export default function App() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
   const [intrinsicSize, setIntrinsicSize] = useState<{ w: number; h: number } | null>(null);
-  const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 });
-  const [canvasZoom, setCanvasZoom] = useState(1);
+  const [canvasOffset, setCanvasOffset] = useState(() => { const l = loadLockedCanvas(); return l ? { x: l.x, y: l.y } : { x: 0, y: 0 }; });
+  const [canvasZoom, setCanvasZoom] = useState(() => loadLockedCanvas()?.zoom ?? 1);
+  const [canvasLocked, setCanvasLocked] = useState(() => loadLockedCanvas() !== null);
   const [draggingCanvas, setDraggingCanvas] = useState(false);
+  const [canvasHintVisible, setCanvasHintVisible] = useState(false);
+  const [canvasToast, setCanvasToast] = useState<string | null>(null);
   const canvasDragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const [roster, setRoster] = useState<RosterEntry[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -487,8 +519,8 @@ export default function App() {
     setMobilePanelOpen(false);
     setRoster([]);
     setChatMessages([]);
-    setCanvasOffset({ x: 0, y: 0 });
-    setCanvasZoom(1);
+    if (!canvasLocked) { setCanvasOffset({ x: 0, y: 0 }); setCanvasZoom(1); }
+    setCanvasHintVisible(!canvasLocked);
     const socket = new WebSocket(signalingUrl);
     socketRef.current = socket;
     const peer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
@@ -845,9 +877,11 @@ export default function App() {
   }
 
   function onCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (canvasLocked) return;
     if (event.button !== 0 && event.pointerType === "mouse") return;
     event.currentTarget.setPointerCapture(event.pointerId);
     setDraggingCanvas(true);
+    setCanvasHintVisible(false);
     canvasDragRef.current = { startX: event.clientX, startY: event.clientY, originX: canvasOffset.x, originY: canvasOffset.y };
   }
   function onCanvasPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
@@ -862,6 +896,18 @@ export default function App() {
   function resetCanvasPosition() {
     setCanvasOffset({ x: 0, y: 0 });
     setCanvasZoom(1);
+  }
+  function toggleCanvasLock() {
+    if (canvasLocked) {
+      setCanvasLocked(false);
+      localStorage.removeItem("rc_canvas_lock");
+      setCanvasToast(t("positionUnlocked"));
+    } else {
+      setCanvasLocked(true);
+      localStorage.setItem("rc_canvas_lock", JSON.stringify({ locked: true, x: canvasOffset.x, y: canvasOffset.y, zoom: canvasZoom }));
+      setCanvasToast(t("positionLocked"));
+    }
+    window.setTimeout(() => setCanvasToast(null), 1800);
   }
 
   function sendChat() {
@@ -982,6 +1028,12 @@ export default function App() {
     raf = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(raf);
   }, [status, activeConsole, gamepadBindingsByGame]);
+
+  useEffect(() => {
+    if (!canvasHintVisible) return;
+    const timer = window.setTimeout(() => setCanvasHintVisible(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [canvasHintVisible]);
 
   const inLobby = status === "Disconnected";
 
@@ -1473,7 +1525,11 @@ export default function App() {
           </div>
           <div className={`stage stage-${scale === "fit" ? "fit" : "fixed"}`}>
             <div
-              className={draggingCanvas ? "stage-canvas dragging" : "stage-canvas"}
+              className={[
+                "stage-canvas",
+                draggingCanvas ? "dragging" : "",
+                canvasLocked ? "locked" : "",
+              ].filter(Boolean).join(" ")}
               style={{ transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px) scale(${canvasZoom})` }}
               onPointerDown={onCanvasPointerDown}
               onPointerMove={onCanvasPointerMove}
@@ -1497,6 +1553,12 @@ export default function App() {
               />
             </div>
             {mediaState !== "Receiving media" && <div className="placeholder">{translate(lang, (mediaKeys[mediaState] as any) ?? "waitingForGameServer")}</div>}
+            {canvasHintVisible && !canvasLocked && mediaState === "Receiving media" && (
+              <div className="canvas-hint">
+                <IconMove /> {t("canvasDragHint")}
+              </div>
+            )}
+            {canvasToast && <div className="canvas-toast">{canvasToast}</div>}
           </div>
           <TouchControls sendInput={sendInput} layout={touchLayout} size={touchSize} />
           <button className="mobile-panel-fab" onClick={() => setMobilePanelOpen(true)} aria-label={t("players")}>
@@ -1585,7 +1647,7 @@ export default function App() {
                 </div>
 
                 <p className="settings-label" style={{ marginTop: 14 }}>{t("screenPosition")}</p>
-                <span className="lobby-card-hint">{t("screenPositionHint")}</span>
+                <span className="lobby-card-hint">{canvasLocked ? t("screenPositionLockedHint") : t("screenPositionHint")}</span>
                 <div className="volume-row">
                   <span className="volume-value" style={{ minWidth: 40 }}>{Math.round(canvasZoom * 100)}%</span>
                   <input
@@ -1596,9 +1658,13 @@ export default function App() {
                     value={Math.round(canvasZoom * 100)}
                     onChange={(event) => setCanvasZoom(Number(event.target.value) / 100)}
                     aria-label={t("zoom")}
+                    disabled={canvasLocked}
                   />
-                  <button className="btn-ghost" onClick={resetCanvasPosition}>{t("recenter")}</button>
+                  <button className="btn-ghost" onClick={resetCanvasPosition} disabled={canvasLocked}>{t("recenter")}</button>
                 </div>
+                <button className={canvasLocked ? "scale-option active canvas-lock-btn" : "scale-option canvas-lock-btn"} onClick={toggleCanvasLock}>
+                  <IconPin locked={canvasLocked} /> {canvasLocked ? t("unlockPosition") : t("lockPosition")}
+                </button>
               </div>
             )}
 
