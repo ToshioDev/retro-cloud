@@ -28,6 +28,7 @@ const gameServerImage = process.env.GAME_SERVER_IMAGE ?? "piepacker-clone-game-s
 const romsHostDir = process.env.ROMS_DIR ?? "";
 const romsLocalDir = "/roms";
 const signalingUrlForGameServer = process.env.GAME_SERVER_SIGNALING_URL ?? "ws://signaling:8080/signaling";
+const publicIp = process.env.PUBLIC_IP ?? "";
 const docker = romsHostDir ? new Docker() : null;
 const managedRooms = new Map<string, { containerId: string }>();
 const roomOwners = new Map<string, string>();
@@ -119,6 +120,7 @@ async function spawnGameServer(game: string, romPath: string, owner: string, vis
       "WEBRTC_DEBUG=1",
       `SIGNALING_URL=${signalingUrlForGameServer}`,
       `SIGNALING_ROOM=${room}`,
+      `PUBLIC_IP=${publicIp}`,
     ],
     HostConfig: {
       Binds: [`${romsHostDir}:/roms:ro`],

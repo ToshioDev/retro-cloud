@@ -7,6 +7,7 @@
 #include <gst/webrtc/webrtc.h>
 #include <nlohmann/json.hpp>
 
+#include <cstdlib>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -49,8 +50,23 @@ void on_negotiation_needed(GstElement *webrtc, gpointer user_data) {
     g_signal_emit_by_name(webrtc, "create-offer", nullptr, promise);
 }
 
+// With NetworkMode=host the container sees every interface on the VPS, including unrelated Docker
+// bridge networks from other apps sharing the host. Those produce dozens of irrelevant ICE host
+// candidates that can win ICE priority over the real public IP and leave media flowing nowhere even
+// though the connection reports "connected" (DTLS only needs one working component). If PUBLIC_IP is
+// set, only forward UDP candidates for that address (plus the end-of-candidates marker).
+bool should_forward_candidate(const std::string &candidate) {
+    if (candidate.empty()) return true; // end-of-candidates marker
+    static const char *public_ip = std::getenv("PUBLIC_IP");
+    if (!public_ip || !*public_ip) return true;
+    if (candidate.find(" TCP ") != std::string::npos) return false;
+    return candidate.find(std::string(" ") + public_ip + " ") != std::string::npos;
+}
+
 void on_ice_candidate(GstElement *, guint mline, gchar *candidate, gpointer user_data) {
     auto *peer = static_cast<WebRtcPipeline::Peer *>(user_data);
+    const std::string candidate_str = candidate ? candidate : "";
+    if (!should_forward_candidate(candidate_str)) return;
     if (peer->pipeline->signaling_client()) {
         const auto payload = json{{"candidate", candidate}, {"sdpMLineIndex", mline}}.dump();
         peer->pipeline->signaling_client()->send("candidate", peer->pipeline->room(), payload, peer->peer_id);

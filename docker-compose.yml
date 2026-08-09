@@ -9,6 +9,7 @@ services:
       GAME_SERVER_SIGNALING_URL: ${GAME_SERVER_SIGNALING_URL:-ws://signaling:8080/signaling}
       ROMS_DIR: ${ROMS_DIR:-}
       DATABASE_URL: ${DATABASE_URL:-postgres://retro:retro@postgres:5432/retro_cloud}
+      PUBLIC_IP: ${PUBLIC_IP:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${ROMS_DIR:-./roms}:/roms
@@ -56,6 +57,7 @@ services:
       WEBRTC_DEBUG: ${WEBRTC_DEBUG:-0}
       SIGNALING_URL: ${SIGNALING_URL:-ws://signaling:8080/signaling}
       SIGNALING_ROOM: ${SIGNALING_ROOM:-}
+      PUBLIC_IP: ${PUBLIC_IP:-}
     volumes:
       - ${ROMS_DIR:-./roms}:/roms:ro
     depends_on:
