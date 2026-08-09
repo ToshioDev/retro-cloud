@@ -59,8 +59,8 @@ main.in-room { width: 100%; max-width: none; margin: 0; padding: 0 320px 0 0; he
   background: #0b111e; border-right: 1px solid var(--line);
   box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
 }
-.side-rail-brand { display: flex; align-items: center; justify-content: center; }
-.side-rail-brand .brand-mark { font-size: 26px; color: var(--signal); }
+.side-rail-brand { display: flex; align-items: center; justify-content: center; padding: 4px 0; }
+.brand-sidebar { font-size: 14px !important; letter-spacing: -.04em; }
 .side-rail-avatar-btn { position: relative; padding: 0; border-radius: 50%; border-color: transparent; background: transparent; }
 .side-rail-avatar-btn .roster-avatar { width: 42px; height: 42px; font-size: 16px; border: 2px solid var(--signal); box-shadow: 0 0 12px var(--signal-glow); background: linear-gradient(135deg, #a855f7, #6366f1); }
 .side-rail-nav { display: flex; flex-direction: column; gap: 10px; width: 100%; padding: 0 10px; }

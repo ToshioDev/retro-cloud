@@ -1386,7 +1386,7 @@ export default function App() {
   return <main className={inLobby ? undefined : "in-room"}>
     {inLobby && (
       <nav className="side-rail">
-        <div className="side-rail-brand"><span className="brand-mark">◆</span></div>
+        <div className="side-rail-brand"><span className="brand-name brand-sidebar">retro<em>X</em></span></div>
         <div className="side-rail-nav">
           <button className={lobbyView === "catalog" ? "side-rail-btn active" : "side-rail-btn"} onClick={() => setLobbyView("catalog")}>
             <IconGrid /><span>{t("catalogTab")}</span>
