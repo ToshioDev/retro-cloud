@@ -375,8 +375,18 @@ export default function App() {
     if (rebinding) return;
     const reverseMap: Record<string, Button> = {};
     for (const button of buttons) reverseMap[keyBindings[button]] = button;
-    const down = (event: KeyboardEvent) => { const button = reverseMap[event.key]; if (button) { event.preventDefault(); sendInput(button, true); } };
-    const up = (event: KeyboardEvent) => { const button = reverseMap[event.key]; if (button) { event.preventDefault(); sendInput(button, false); } };
+    const isTypingTarget = (target: EventTarget | null) => {
+      const el = target as HTMLElement | null;
+      return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+    };
+    const down = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) return;
+      const button = reverseMap[event.key]; if (button) { event.preventDefault(); sendInput(button, true); }
+    };
+    const up = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) return;
+      const button = reverseMap[event.key]; if (button) { event.preventDefault(); sendInput(button, false); }
+    };
     window.addEventListener("keydown", down); window.addEventListener("keyup", up);
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, [keyBindings, rebinding]);
