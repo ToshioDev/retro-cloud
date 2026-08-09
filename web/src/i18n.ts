@@ -66,6 +66,9 @@ const dict = {
 
   byog: { en: "Bring your own games", es: "Trae tus propios juegos" },
   searchGames: { en: "Search games…", es: "Buscar juegos…" },
+  biosMissing: { en: "Needs BIOS", es: "Falta BIOS" },
+  uploadBios: { en: "Upload PS1 BIOS", es: "Subir BIOS de PS1" },
+  uploadBiosHint: { en: "One-time setup: upload your scph1001.bin so PS1 rooms can boot. After this, just upload games.", es: "Configuración única: subí tu scph1001.bin para que las salas de PS1 puedan iniciar. Después de esto, solo subís juegos." },
   chooseRom: { en: "Choose a ROM to host", es: "Elige una ROM para crear sala" },
   noRomsUploaded: { en: "No ROMs uploaded yet.", es: "Aún no hay ROMs subidas." },
   uploadFromPanel: { en: "Upload one from the panel to start hosting.", es: "Sube una desde el panel para empezar." },

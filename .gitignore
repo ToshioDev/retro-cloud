@@ -5,5 +5,7 @@ build/
 .DS_Store
 captures/
 signaling/data/
+bios/
+roms/
 web/dist/
 game-server/build/

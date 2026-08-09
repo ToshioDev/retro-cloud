@@ -8,11 +8,13 @@ services:
       DOCKER_NETWORK: ${DOCKER_NETWORK:-piepacker-clone_default}
       GAME_SERVER_SIGNALING_URL: ${GAME_SERVER_SIGNALING_URL:-ws://signaling:8080/signaling}
       ROMS_DIR: ${ROMS_DIR:-}
+      BIOS_DIR: ${BIOS_DIR:-}
       DATABASE_URL: ${DATABASE_URL:-postgres://retro:retro@postgres:5432/retro_cloud}
       PUBLIC_IP: ${PUBLIC_IP:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${ROMS_DIR:-./roms}:/roms
+      - ${BIOS_DIR:-./bios}:/system
     expose:
       - "8080"
     depends_on:

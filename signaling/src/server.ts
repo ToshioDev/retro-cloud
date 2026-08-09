@@ -27,17 +27,39 @@ const rooms = new Map<string, RoomState>();
 const gameServerImage = process.env.GAME_SERVER_IMAGE ?? "piepacker-clone-game-server";
 const romsHostDir = process.env.ROMS_DIR ?? "";
 const romsLocalDir = "/roms";
+const biosHostDir = process.env.BIOS_DIR ?? "";
+const biosLocalDir = "/system";
 const signalingUrlForGameServer = process.env.GAME_SERVER_SIGNALING_URL ?? "ws://signaling:8080/signaling";
 const publicIp = process.env.PUBLIC_IP ?? "";
 const docker = romsHostDir ? new Docker() : null;
 const managedRooms = new Map<string, { containerId: string }>();
 const roomOwners = new Map<string, string>();
 const roomVisibility = new Map<string, "public" | "private">();
-const extensionToGame: Record<string, string> = { ".nes": "nes", ".sfc": "snes", ".smc": "snes" };
-const maxRomUploadBytes = 8 * 1024 * 1024;
+const extensionToGame: Record<string, string> = {
+  ".nes": "nes",
+  ".sfc": "snes",
+  ".smc": "snes",
+  ".bin": "ps1",
+  ".iso": "ps1",
+  ".img": "ps1",
+  ".pbp": "ps1",
+  ".chd": "ps1",
+};
+const maxRomUploadBytesByGame: Record<string, number> = { nes: 8 * 1024 * 1024, snes: 8 * 1024 * 1024, ps1: 700 * 1024 * 1024 };
+const maxBiosUploadBytes = 4 * 1024 * 1024;
+const ps1BiosFilename = "scph1001.bin";
 
 function gameForExtension(filename: string): string | null {
   return extensionToGame[extname(filename).toLowerCase()] ?? null;
+}
+
+async function hasPs1Bios(): Promise<boolean> {
+  try {
+    const info = await stat(join(biosLocalDir, ps1BiosFilename));
+    return info.isFile() && info.size > 0;
+  } catch {
+    return false;
+  }
 }
 
 const romOwnersFile = join(romsLocalDir, ".owners.json");
@@ -110,8 +132,13 @@ async function resolveGameServerImage(): Promise<string> {
 
 async function spawnGameServer(game: string, romPath: string, owner: string, visibility: "public" | "private"): Promise<string> {
   if (!docker) throw new Error("room creation is disabled: ROMS_DIR is not configured on the signaling service");
+  if (game === "ps1" && !(await hasPs1Bios())) {
+    throw new Error("PS1 needs a BIOS file uploaded first (see the BIOS section in your profile)");
+  }
   const room = randomRoomId();
   const image = await resolveGameServerImage();
+  const binds = [`${romsHostDir}:/roms:ro`];
+  if (biosHostDir) binds.push(`${biosHostDir}:/system:ro`);
   const container = await docker.createContainer({
     Image: image,
     Env: [
@@ -123,7 +150,7 @@ async function spawnGameServer(game: string, romPath: string, owner: string, vis
       `PUBLIC_IP=${publicIp}`,
     ],
     HostConfig: {
-      Binds: [`${romsHostDir}:/roms:ro`],
+      Binds: binds,
       NetworkMode: "host",
       AutoRemove: true,
     },
@@ -257,9 +284,10 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     const game = gameForExtension(requestedName);
     if (!requestedName || !game) {
       response.writeHead(400, { "content-type": "application/json" });
-      response.end(JSON.stringify({ error: "filename must end in .nes, .sfc, or .smc" }));
+      response.end(JSON.stringify({ error: "filename must end in .nes, .sfc, .smc, .bin, .iso, .img, .pbp, or .chd" }));
       return;
     }
+    const maxRomUploadBytes = maxRomUploadBytesByGame[game] ?? 8 * 1024 * 1024;
     const finalPath = join(romsLocalDir, requestedName);
     const tmpPath = `${finalPath}.uploading-${randomUUID()}`;
     let receivedBytes = 0;
@@ -287,6 +315,66 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
         .catch((error) => {
           response.writeHead(500, { "content-type": "application/json" });
           response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to save ROM" }));
+        });
+    });
+    request.on("error", () => {
+      void unlink(tmpPath).catch(() => {});
+      if (!response.headersSent) {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "upload failed" }));
+      }
+    });
+    return;
+  }
+  if (request.method === "GET" && request.url === "/bios") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ps1: await hasPs1Bios() }));
+    return;
+  }
+  if (request.method === "POST" && request.url === "/bios/ps1") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    if (!biosHostDir) {
+      response.writeHead(500, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "BIOS_DIR is not configured on the signaling service" }));
+      return;
+    }
+    const finalPath = join(biosLocalDir, ps1BiosFilename);
+    const tmpPath = `${finalPath}.uploading-${randomUUID()}`;
+    let receivedBytes = 0;
+    let aborted = false;
+    const out = createWriteStream(tmpPath);
+    request.on("data", (chunk: Buffer) => {
+      receivedBytes += chunk.length;
+      if (receivedBytes > maxBiosUploadBytes) {
+        aborted = true;
+        request.destroy();
+        out.destroy();
+        void unlink(tmpPath).catch(() => {});
+      }
+    });
+    request.pipe(out);
+    out.on("finish", () => {
+      if (aborted) return;
+      rename(tmpPath, finalPath)
+        .then(() => {
+          console.log(`[SIGNALING] ${username} uploaded PS1 BIOS (${receivedBytes} bytes)`);
+          response.writeHead(201, { "content-type": "application/json" });
+          response.end(JSON.stringify({ ps1: true, size: receivedBytes }));
+        })
+        .catch((error) => {
+          response.writeHead(500, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to save BIOS" }));
         });
     });
     request.on("error", () => {

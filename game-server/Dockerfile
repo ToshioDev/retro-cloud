@@ -10,6 +10,8 @@ RUN git clone --depth=1 https://github.com/libretro/libretro-fceumm.git fceumm
 RUN make -C /src/fceumm -f Makefile.libretro platform=unix -j"$(nproc)"
 RUN git clone --depth=1 https://github.com/libretro/Snes9x.git snes9x
 RUN make -C /src/snes9x/libretro platform=unix -j"$(nproc)"
+RUN git clone --depth=1 https://github.com/libretro/pcsx_rearmed.git pcsx_rearmed
+RUN make -C /src/pcsx_rearmed -f Makefile.libretro platform=unix -j"$(nproc)"
 
 FROM ubuntu:24.04 AS build
 ENV DEBIAN_FRONTEND=noninteractive
@@ -33,12 +35,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gstreamer1.0-tools gstreamer1.0-nice gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /roms /opt/libretro/cores
+    && mkdir -p /roms /system /system/saves /opt/libretro/cores
 COPY --from=build /src/build/game-server /usr/local/bin/game-server
 COPY --from=core-builder /src/fceumm/fceumm_libretro.so /opt/libretro/cores/fceumm_libretro.so
 COPY --from=core-builder /src/snes9x/libretro/snes9x_libretro.so /opt/libretro/cores/snes9x_libretro.so
+COPY --from=core-builder /src/pcsx_rearmed/pcsx_rearmed_libretro.so /opt/libretro/cores/pcsx_rearmed_libretro.so
 ENV GAME=nes \
     ROM_PATH=/roms/game.nes \
+    SYSTEM_DIRECTORY=/system \
+    SAVE_DIRECTORY=/system/saves \
     VIDEO_WIDTH=640 \
     VIDEO_HEIGHT=480 \
     VIDEO_FPS=60 \

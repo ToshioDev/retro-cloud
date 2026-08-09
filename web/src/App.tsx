@@ -5,17 +5,17 @@ type SignalMessage = { type: string; room?: string; from?: string; payload?: any
 type Button = "UP" | "DOWN" | "LEFT" | "RIGHT" | "A" | "B" | "START" | "SELECT" | "L" | "R";
 type RosterEntry = { peerId: string; playerNumber: number; username: string };
 type ChatMessage = { username: string; playerNumber?: number; text: string; timestamp: number };
-type RomEntry = { file: string; game: "nes" | "snes"; size: number; owner: string | null };
+type RomEntry = { file: string; game: "nes" | "snes" | "ps1"; size: number; owner: string | null };
 
 const CONSOLES: { id: string; label: string; sub: string; active: boolean; hue: string }[] = [
   { id: "nes", label: "NES", sub: "8-bit", active: true, hue: "nes" },
   { id: "snes", label: "SNES", sub: "16-bit", active: true, hue: "snes" },
+  { id: "ps1", label: "PS1", sub: "32-bit", active: true, hue: "ps1" },
   { id: "gba", label: "GBA", sub: "Próximamente", active: false, hue: "gba" },
   { id: "genesis", label: "Genesis", sub: "Próximamente", active: false, hue: "genesis" },
   { id: "pce", label: "PC Engine", sub: "Próximamente", active: false, hue: "pce" },
   { id: "gb", label: "Game Boy", sub: "Próximamente", active: false, hue: "gb" },
   { id: "n64", label: "N64", sub: "Próximamente", active: false, hue: "n64" },
-  { id: "ps1", label: "PS1", sub: "Próximamente", active: false, hue: "ps1" },
 ];
 
 const signalingUrl = import.meta.env.VITE_SIGNALING_URL ?? "ws://localhost:8080/signaling";
@@ -191,6 +191,9 @@ export default function App() {
   const [selectedRom, setSelectedRom] = useState<string | null>(null);
   const [catalogConsole, setCatalogConsole] = useState<string>("all");
   const [catalogSearch, setCatalogSearch] = useState("");
+  const [ps1BiosReady, setPs1BiosReady] = useState<boolean | null>(null);
+  const [biosUploading, setBiosUploading] = useState(false);
+  const [biosError, setBiosError] = useState("");
   const [newRoomVisibility, setNewRoomVisibility] = useState<"public" | "private">("public");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
@@ -314,6 +317,38 @@ export default function App() {
       setUploadError(error instanceof Error ? error.message : "upload failed");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function refreshBios() {
+    if (!authToken) return;
+    try {
+      const response = await fetch(`${apiBase}/bios`, { headers: { authorization: `Bearer ${authToken}` } });
+      if (!response.ok) return;
+      const body = await response.json() as { ps1: boolean };
+      setPs1BiosReady(body.ps1);
+    } catch { /* ignore transient failures */ }
+  }
+
+  async function uploadBios(file: File) {
+    if (!authToken) return;
+    setBiosUploading(true);
+    setBiosError("");
+    try {
+      const response = await fetch(`${apiBase}/bios/ps1`, {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream", authorization: `Bearer ${authToken}` },
+        body: file,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? `upload failed (${response.status})`);
+      }
+      setPs1BiosReady(true);
+    } catch (error) {
+      setBiosError(error instanceof Error ? error.message : "upload failed");
+    } finally {
+      setBiosUploading(false);
     }
   }
 
@@ -569,6 +604,7 @@ export default function App() {
         // ignore transient failures
       }
       void refreshFriends();
+      void refreshBios();
     })();
   }, [authToken]);
 
@@ -1013,7 +1049,7 @@ export default function App() {
             >
               {!c.active && <span className="console-tile-lock"><IconLock /></span>}
               <span className="console-tile-label">{c.label}</span>
-              <span className="console-tile-sub">{c.sub}</span>
+              <span className="console-tile-sub">{c.id === "ps1" && ps1BiosReady === false ? t("biosMissing") : c.sub}</span>
             </button>
           ))}
         </div>
@@ -1038,7 +1074,7 @@ export default function App() {
               </div>
             ) : (
               <div className="catalog">
-                {(["snes", "nes"] as const).map((consoleName) => {
+                {(["snes", "nes", "ps1"] as const).map((consoleName) => {
                   if (catalogConsole !== "all" && catalogConsole !== consoleName) return null;
                   const search = catalogSearch.trim().toLowerCase();
                   const consoleRoms = roms.filter((rom) => rom.game === consoleName && (!search || rom.file.toLowerCase().includes(search)));
@@ -1066,9 +1102,9 @@ export default function App() {
                               </button>
                             )}
                             <div className="game-card-cover">
-                              <span className="game-card-glyph">{consoleName === "nes" ? "▮▮" : "▮▮▮"}</span>
+                              <span className="game-card-glyph">{consoleName === "nes" ? "▮▮" : consoleName === "snes" ? "▮▮▮" : "◉"}</span>
                             </div>
-                            <span className="game-card-label">{rom.file.replace(/\.(nes|sfc|smc)$/i, "")}</span>
+                            <span className="game-card-label">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</span>
                             <span className="game-card-meta">{(rom.size / 1024 / 1024).toFixed(1)} MB{!rom.owner && ` · ${t("shared")}`}</span>
                           </div>
                         ))}
@@ -1100,7 +1136,7 @@ export default function App() {
               <label className="upload-drop">
                 <input
                   type="file"
-                  accept=".nes,.sfc,.smc"
+                  accept=".nes,.sfc,.smc,.bin,.iso,.img,.pbp,.chd"
                   disabled={uploading || !authToken}
                   onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadRom(file); event.target.value = ""; }}
                   aria-label={t("uploadRom")}
@@ -1109,6 +1145,24 @@ export default function App() {
               </label>
               {uploadError && <p className="form-error">{uploadError}</p>}
             </div>
+
+            {ps1BiosReady === false && (
+              <div className="lobby-card">
+                <p className="form-label">{t("uploadBios")}</p>
+                <span className="lobby-card-hint">{t("uploadBiosHint")}</span>
+                <label className="upload-drop">
+                  <input
+                    type="file"
+                    accept=".bin"
+                    disabled={biosUploading || !authToken}
+                    onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadBios(file); event.target.value = ""; }}
+                    aria-label={t("uploadBios")}
+                  />
+                  <span>{biosUploading ? t("uploading") : t("chooseFileDrop")}</span>
+                </label>
+                {biosError && <p className="form-error">{biosError}</p>}
+              </div>
+            )}
           </aside>
         </div>
       </section>

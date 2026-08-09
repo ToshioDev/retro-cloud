@@ -52,6 +52,8 @@ struct Runtime {
     unsigned width = 0;
     unsigned height = 0;
     unsigned pixel_format = RETRO_PIXEL_FORMAT_XRGB8888;
+    std::string system_directory;
+    std::string save_directory;
     std::unique_ptr<GStreamerPipeline> video_pipeline;
     std::unique_ptr<WebRtcPipeline> webrtc_pipeline;
     std::unique_ptr<SignalingClient> signaling_client;
@@ -98,6 +100,20 @@ bool environment(unsigned command, void *data) {
     case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
         runtime.av = *static_cast<retro_system_av_info *>(data);
         return true;
+    case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY:
+        if (runtime.system_directory.empty()) return false;
+        *static_cast<const char **>(data) = runtime.system_directory.c_str();
+        return true;
+    case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY:
+        if (runtime.save_directory.empty()) return false;
+        *static_cast<const char **>(data) = runtime.save_directory.c_str();
+        return true;
+    case RETRO_ENVIRONMENT_GET_VARIABLE:
+        return false; // no overrides; cores fall back to their built-in defaults
+    case RETRO_ENVIRONMENT_SET_VARIABLES:
+        return true; // acknowledge, we don't expose core options
+    case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
+        return false; // stick to the legacy variables API
     default:
         return false;
     }
@@ -251,7 +267,10 @@ GameConfig game_config() {
     if (game == "snes") {
         return {"SNES", env_or("LIBRETRO_CORE", "/opt/libretro/cores/snes9x_libretro.so"), env_or("ROM_PATH", "/roms/game.sfc")};
     }
-    throw std::runtime_error("unsupported GAME='" + game + "'; allowed values are nes or snes");
+    if (game == "ps1") {
+        return {"PS1", env_or("LIBRETRO_CORE", "/opt/libretro/cores/pcsx_rearmed_libretro.so"), env_or("ROM_PATH", "/roms/game.bin")};
+    }
+    throw std::runtime_error("unsupported GAME='" + game + "'; allowed values are nes, snes, or ps1");
 }
 
 } // namespace
@@ -267,6 +286,8 @@ int main() {
         runtime.video_bitrate_kbps = bitrate_kbps(env_or("VIDEO_BITRATE", "2M"));
         runtime.webrtc_debug = env_or("WEBRTC_DEBUG", "0") == "1";
         runtime.signaling_url = env_or("SIGNALING_URL", "ws://signaling:8080/signaling");
+        runtime.system_directory = env_or("SYSTEM_DIRECTORY", "/system");
+        runtime.save_directory = env_or("SAVE_DIRECTORY", "/system/saves");
         const char *fixed_room = std::getenv("SIGNALING_ROOM");
         runtime.signaling_room = fixed_room && *fixed_room ? fixed_room : random_room_id();
         log_line("[EMULATOR]", "session room: " + runtime.signaling_room);
