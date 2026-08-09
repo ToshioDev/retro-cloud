@@ -195,6 +195,113 @@ function IconSoundFx({ enabled }: { enabled: boolean }) {
   </svg>;
 }
 
+function IconNesConsole() {
+  return <svg viewBox="0 0 120 80" width="80" height="53" fill="none">
+    <rect x="15" y="20" width="90" height="48" rx="4" fill="#e2e8f0"/>
+    <rect x="25" y="20" width="70" height="24" fill="#334155"/>
+    <rect x="30" y="26" width="60" height="12" fill="#1e293b"/>
+    <rect x="25" y="48" width="14" height="12" fill="#94a3b8"/>
+    <rect x="43" y="48" width="14" height="12" fill="#94a3b8"/>
+    <circle cx="85" cy="54" r="3" fill="#ef4444"/>
+    <circle cx="95" cy="54" r="3" fill="#ef4444"/>
+  </svg>;
+}
+function IconSnesConsole() {
+  return <svg viewBox="0 0 120 80" width="80" height="53" fill="none">
+    <rect x="15" y="18" width="90" height="50" rx="6" fill="#cbd5e1"/>
+    <rect x="25" y="18" width="70" height="16" fill="#8b5cf6"/>
+    <rect x="35" y="22" width="50" height="8" fill="#4c1d95"/>
+    <rect x="35" y="40" width="50" height="20" rx="3" fill="#94a3b8"/>
+    <rect x="42" y="45" width="14" height="10" fill="#8b5cf6"/>
+    <rect x="64" y="45" width="14" height="10" fill="#8b5cf6"/>
+  </svg>;
+}
+function IconPs1Console() {
+  return <svg viewBox="0 0 120 80" width="80" height="53" fill="none">
+    <rect x="15" y="16" width="90" height="52" rx="8" fill="#cbd5e1"/>
+    <circle cx="60" cy="42" r="20" fill="#94a3b8"/>
+    <circle cx="60" cy="42" r="14" fill="#64748b"/>
+    <circle cx="30" cy="30" r="7" fill="#94a3b8"/>
+    <circle cx="90" cy="30" r="7" fill="#94a3b8"/>
+    <rect x="25" y="54" width="20" height="6" rx="2" fill="#64748b"/>
+    <rect x="75" y="54" width="20" height="6" rx="2" fill="#64748b"/>
+  </svg>;
+}
+function IconN64Console() {
+  return <svg viewBox="0 0 120 80" width="80" height="53" fill="none">
+    <path d="M15 28 C15 20, 105 20, 105 28 L100 64 C100 68, 20 68, 20 64 Z" fill="#1e293b"/>
+    <rect x="38" y="22" width="44" height="14" rx="3" fill="#334155"/>
+    <rect x="44" y="25" width="32" height="8" rx="2" fill="#0f172a"/>
+    <circle cx="30" cy="52" r="6" fill="#dc2626"/>
+    <circle cx="90" cy="52" r="6" fill="#2563eb"/>
+    <circle cx="78" cy="56" r="4" fill="#ca8a04"/>
+    <circle cx="84" cy="46" r="4" fill="#ca8a04"/>
+  </svg>;
+}
+function IconGbaConsole() {
+  return <svg viewBox="0 0 120 80" width="80" height="53" fill="none">
+    <rect x="10" y="20" width="100" height="46" rx="14" fill="#e056fd"/>
+    <rect x="35" y="24" width="50" height="34" rx="4" fill="#0f172a"/>
+    <rect x="39" y="27" width="42" height="28" rx="2" fill="#84cc16"/>
+    <circle cx="22" cy="43" r="8" fill="#a855f7"/>
+    <circle cx="98" cy="38" r="4" fill="#38bdf8"/>
+    <circle cx="104" cy="46" r="4" fill="#38bdf8"/>
+  </svg>;
+}
+function IconGenesisConsole() {
+  return <svg viewBox="0 0 120 80" width="80" height="53" fill="none">
+    <rect x="15" y="18" width="90" height="50" rx="6" fill="#1e293b"/>
+    <circle cx="60" cy="42" r="18" fill="#0f172a"/>
+    <circle cx="60" cy="42" r="14" stroke="#eab308" strokeWidth="2" fill="none"/>
+    <rect x="30" y="22" width="60" height="8" rx="2" fill="#334155"/>
+    <rect x="25" y="48" width="16" height="6" fill="#64748b"/>
+  </svg>;
+}
+
+const JAM_CONSOLES = [
+  { id: "snes", name: "SUPER NES", bg: "#8b5cf6", active: true, icon: IconSnesConsole },
+  { id: "ps1", name: "PS1", bg: "#00a8ff", active: true, icon: IconPs1Console },
+  { id: "n64", name: "NINTENDO 64", bg: "#ff2a6d", active: false, icon: IconN64Console },
+  { id: "gba", name: "GBA", bg: "#e056fd", active: false, icon: IconGbaConsole },
+  { id: "genesis", name: "GENESIS", bg: "#f0932b", active: false, icon: IconGenesisConsole },
+  { id: "nes", name: "NES", bg: "#a55eea", active: true, icon: IconNesConsole },
+];
+
+const FEATURED_GAMES = [
+  {
+    id: "kof98",
+    title: "The King of Fighters '98",
+    desc: "You can have your 99 hits. My KO just needs 1...",
+    bg: "linear-gradient(135deg, #1e3a8a, #0f172a)",
+    tags: ["#fighting", "#arcade", "#versus"],
+    maxPlayers: "2P",
+    game: "ps1",
+    players: 1,
+  },
+  {
+    id: "mslugx",
+    title: "Metal Slug X",
+    desc: "If bullets and bombs don't work, bring in the cannons!",
+    bg: "linear-gradient(135deg, #78350f, #1e293b)",
+    tags: ["#arcade", "#run and gun", "#shoot'em up"],
+    maxPlayers: "2P",
+    game: "ps1",
+    players: 0,
+  },
+  {
+    id: "bomber",
+    title: "Arsène Bomber",
+    desc: "Bomb or be bombed? That is the question.",
+    bg: "linear-gradient(135deg, #0369a1, #0f172a)",
+    tags: ["#action", "#arcade"],
+    maxPlayers: "4P",
+    game: "snes",
+    players: 0,
+  },
+];
+
+const HASHTAGS = ["#action", "#arcade", "#sports", "#platformer", "#indie", "#shooter", "#puzzle", "#shoot'em up", "#fighting"];
+
 function TouchButton({ label, className, onPress }: { label: string; className: string; onPress: (pressed: boolean) => void }) {
   const [held, setHeld] = useState(false);
   const pressedRef = useRef(false);
@@ -1262,96 +1369,154 @@ export default function App() {
 
     {inLobby && lobbyView === "catalog" && (
       <section className="lobby">
-        <div className="hero-banner">
-          <h2 className="hero-banner-title">retro<span style={{ color: "var(--cyan)" }}>X</span> Cloud Arcade</h2>
-          <p className="hero-banner-sub">{translate(lang, "brandSub")}</p>
-          <div className="hero-stats-row">
-            <span className="hero-stat-chip"><span className="live-pulse" /> {activeRooms.length} {t("statLiveRooms")}</span>
-            <span className="hero-stat-chip">🎮 NES · SNES · PS1</span>
-            <span className="hero-stat-chip">⚡ WebRTC Low Latency</span>
-          </div>
-        </div>
-
-        <div className="catalog-toolbar">
-          <div className="catalog-search-wrap">
-            <svg className="catalog-search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+        {/* Jam.gg Header Toolbar */}
+        <div className="jam-header-bar">
+          <div className="jam-search-box">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
             <input
-              className="field catalog-search"
+              className="jam-search-input"
               value={catalogSearch}
               onChange={(event) => setCatalogSearch(event.target.value)}
               placeholder={t("searchGames")}
               aria-label={t("searchGames")}
             />
           </div>
-          <div className="pill-row">
-            <button className={catalogConsole === "all" ? "pill active" : "pill"} onClick={() => setCatalogConsole("all")}>{t("allConsoles")}</button>
-            {CONSOLES.map((c) => (
+          <div className="jam-hashtags-row">
+            {HASHTAGS.map((tag) => (
               <button
-                key={c.id}
-                className={`pill${catalogConsole === c.id ? " active" : ""}${!c.active ? " locked" : ""}`}
-                onClick={() => c.active && setCatalogConsole(catalogConsole === c.id ? "all" : c.id)}
-                disabled={!c.active}
+                key={tag}
+                className={`jam-hashtag-pill${catalogSearch === tag ? " active" : ""}`}
+                onClick={() => { setCatalogSearch(catalogSearch === tag ? "" : tag); playClickSound(); }}
               >
-                {!c.active && <IconLock />} {c.label}
+                {tag}
               </button>
+            ))}
+          </div>
+          <div className="jam-header-right">
+            <div className="jam-toggle-wrap">
+              <span>Currently Playing:</span>
+              <div className="jam-toggle active"><div className="jam-toggle-thumb" /></div>
+            </div>
+          </div>
+        </div>
+
+        {/* Featured Showcase Games */}
+        <div className="jam-section">
+          <div className="jam-featured-grid">
+            {FEATURED_GAMES.map((game) => (
+              <div
+                key={game.id}
+                className="jam-featured-card"
+                onClick={() => {
+                  playClickSound();
+                  const matchingRom = roms.find(r => r.file.toLowerCase().includes(game.id) || r.game === game.game);
+                  if (matchingRom) { setSelectedRom(matchingRom.file); setGameModalRom(matchingRom); }
+                  else if (roms.length > 0) { setSelectedRom(roms[0].file); setGameModalRom(roms[0]); }
+                }}
+              >
+                <div className="jam-featured-banner">
+                  <div className="jam-featured-banner-bg" style={{ background: game.bg }} />
+                  <div className="jam-featured-overlay" />
+                  <span className="jam-player-badge">👤 {game.players || 1}</span>
+                  <div className="jam-featured-content">
+                    <h3 className="jam-featured-title">{game.title}</h3>
+                    <p className="jam-featured-desc">{game.desc}</p>
+                  </div>
+                </div>
+                <div className="jam-featured-footer">
+                  <div className="jam-tags-list">
+                    {game.tags.map((tag) => <span key={tag} className="jam-tag">{tag}</span>)}
+                  </div>
+                  <span className="jam-maxp">{game.maxPlayers}</span>
+                </div>
+              </div>
             ))}
           </div>
         </div>
 
-        {roms.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-glyph">▢</div>
-            <p>{t("noRomsUploaded")}</p>
-            <span>{t("uploadFromPanel")}</span>
+        {/* Jam.gg "Bring Your Own Games 🕹️" Section */}
+        <div className="jam-section">
+          <div className="jam-section-title">
+            <span>Bring Your Own Games 🕹️</span>
           </div>
-        ) : (() => {
-          const search = catalogSearch.trim().toLowerCase();
-          const visible = roms.filter((rom) =>
-            (catalogConsole === "all" || rom.game === catalogConsole) &&
-            (!search || rom.file.toLowerCase().includes(search)));
-          if (visible.length === 0) {
-            return <div className="empty-state"><div className="empty-glyph">▢</div><p>{t("noResults")}</p></div>;
-          }
-          return (
-            <div className="poster-grid">
-              {visible.map((rom) => {
-                const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
-                return (
-                  <div
-                    key={rom.file}
-                    role="button"
-                    tabIndex={0}
-                    className="poster-card"
-                    onClick={() => { setSelectedRom(rom.file); setGameModalRom(rom); }}
-                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { setSelectedRom(rom.file); setGameModalRom(rom); } }}
-                  >
-                    {rom.owner === authUsername && (
-                      <button
-                        className="game-card-delete"
-                        aria-label={t("deleteRom")}
-                        onClick={(event) => { event.stopPropagation(); void deleteRom(rom.file); }}
-                      >
-                        <IconClose />
-                      </button>
-                    )}
-                    <div className={`poster-cover console-${rom.game}`}>
-                      {roomsForGame.length > 0 && (
-                        <span className="poster-live-badge"><span className="live-pulse" /> {roomsForGame.length}</span>
-                      )}
-                      <span className="poster-glyph">{rom.game === "nes" ? "▮▮" : rom.game === "snes" ? "▮▮▮" : "◉"}</span>
-                    </div>
-                    <span className="poster-label">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</span>
-                    <div className="poster-meta-row">
-                      <span className="poster-tag">{rom.game.toUpperCase()}</span>
-                      <span className="poster-meta">{(rom.size / 1024 / 1024).toFixed(1)} MB</span>
-                    </div>
+          <div className="jam-consoles-grid">
+            {JAM_CONSOLES.map((c) => {
+              const ConsoleIcon = c.icon;
+              const isSelected = catalogConsole === c.id;
+              return (
+                <div
+                  key={c.id}
+                  className="jam-console-card"
+                  style={{ background: c.bg, opacity: c.active ? 1 : 0.55 }}
+                  onClick={() => {
+                    playClickSound();
+                    if (c.active) setCatalogConsole(isSelected ? "all" : c.id);
+                  }}
+                >
+                  <span className="jam-console-title">{c.name}</span>
+                  <div className="jam-console-icon">
+                    <ConsoleIcon />
                   </div>
-                );
-              })}
-            </div>
-          );
-        })()}
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
+        {/* Jam.gg "Recently Played ⏰" Section */}
+        <div className="jam-section">
+          <div className="jam-section-title">
+            <span>Recently Played ⏰</span>
+          </div>
+          {roms.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-glyph">▢</div>
+              <p>{t("noRomsUploaded")}</p>
+              <span>{t("uploadFromPanel")}</span>
+            </div>
+          ) : (() => {
+            const search = catalogSearch.trim().toLowerCase();
+            const visible = roms.filter((rom) =>
+              (catalogConsole === "all" || rom.game === catalogConsole) &&
+              (!search || rom.file.toLowerCase().includes(search) || search.startsWith("#")));
+            if (visible.length === 0) {
+              return <div className="empty-state"><div className="empty-glyph">▢</div><p>{t("noResults")}</p></div>;
+            }
+            return (
+              <div className="jam-recently-grid">
+                {visible.map((rom) => {
+                  const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
+                  return (
+                    <div
+                      key={rom.file}
+                      role="button"
+                      tabIndex={0}
+                      className="jam-mini-card"
+                      onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
+                    >
+                      <div className={`jam-mini-cover console-${rom.game}`} />
+                      <div className="jam-mini-overlay">
+                        {rom.owner === authUsername && (
+                          <button
+                            className="game-card-delete"
+                            aria-label={t("deleteRom")}
+                            onClick={(event) => { event.stopPropagation(); void deleteRom(rom.file); }}
+                          >
+                            <IconClose />
+                          </button>
+                        )}
+                        <h4 className="jam-mini-title">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</h4>
+                        <p className="jam-mini-sub">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Upload ROM Dropzone Card */}
         <div className="lobby-card catalog-upload-card">
           <p className="form-label">{t("uploadRom")}</p>
           <span className="lobby-card-hint">
