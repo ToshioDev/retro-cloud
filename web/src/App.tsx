@@ -1050,7 +1050,11 @@ export default function App() {
     setCanvasHintVisible(!canvasLocked);
     const socket = new WebSocket(signalingUrl);
     socketRef.current = socket;
-    const peer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    const peer = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      bundlePolicy: "max-bundle",
+      iceCandidatePoolSize: 1,
+    });
     peerRef.current = peer;
     const pendingCandidates: RTCIceCandidateInit[] = [];
     peer.ondatachannel = (event) => {
@@ -1065,6 +1069,8 @@ export default function App() {
         videoRef.current.srcObject = mediaStream;
         videoRef.current.volume = volumeRef.current / 100;
         videoRef.current.muted = mutedRef.current;
+        // Chrome 103+: tell the browser to minimize internal buffering for the lowest possible latency.
+        if ("latency" in videoRef.current) (videoRef.current as any).latency = "realtime";
         void videoRef.current.play();
         if (event.track.kind === "audio") setupAudioGraph(mediaStream);
       }
@@ -1086,8 +1092,11 @@ export default function App() {
           });
         }, 2000);
       }
-      if (state === "failed") setStatus("WebRTC failed");
-      if (state === "closed" || state === "failed" || state === "disconnected") {
+      if (state === "failed") {
+        setStatus("WebRTC failed — restarting ICE");
+        peer.restartIce();
+      }
+      if (state === "closed" || state === "disconnected") {
         if (statsIntervalRef.current) { window.clearInterval(statsIntervalRef.current); statsIntervalRef.current = null; }
         setRttMs(null);
       }
@@ -1162,7 +1171,7 @@ export default function App() {
         reconnectAttemptsRef.current += 1;
         setReconnecting(true);
         setStatus("Connecting");
-        const delay = Math.min(1000 * 2 ** (reconnectAttemptsRef.current - 1), 15000);
+        const delay = Math.min(500 * 2 ** (reconnectAttemptsRef.current - 1), 15000);
         reconnectTimeoutRef.current = window.setTimeout(() => {
           void connect(lastRoomRef.current, lastOwnerRef.current, lastGameRef.current);
         }, delay);

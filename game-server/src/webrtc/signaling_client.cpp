@@ -77,14 +77,14 @@ int callback(lws *socket, lws_callback_reasons reason, void *user, void *in, siz
         client->open = false;
         client->connecting = false;
         client->socket = nullptr;
-        client->next_retry = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        client->next_retry = std::chrono::steady_clock::now() + std::chrono::seconds(1);
         break;
     case LWS_CALLBACK_CLOSED:
         std::cerr << "[SIGNALING] connection closed" << std::endl;
         client->open = false;
         client->connecting = false;
         client->socket = nullptr;
-        client->next_retry = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        client->next_retry = std::chrono::steady_clock::now() + std::chrono::seconds(1);
         break;
     default:
         break;
@@ -152,7 +152,7 @@ void SignalingClient::connect(const std::string &url, const std::string &room, M
     impl_->running = true;
     impl_->service_thread = std::thread([this]() {
         while (impl_->running) {
-            lws_service(impl_->context, 50);
+            lws_service(impl_->context, 10);
             if (!impl_->open && !impl_->connecting && std::chrono::steady_clock::now() >= impl_->next_retry) {
                 std::cerr << "[SIGNALING] retrying connection to " << impl_->host << ":" << impl_->port << impl_->path << std::endl;
                 attempt_connect(*impl_);

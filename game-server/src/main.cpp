@@ -156,11 +156,10 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
         // follows — a BIOS init frame, a letterboxed publisher logo, etc. Picking the single biggest frame
         // seen (the previous approach) let one such outlier lock in a canvas far bigger than the real
         // content, rendering everything after it tiny in a corner.
-        // Instead: watch ~1.5s of frames and go with whichever resolution shows up most — a brief one-off
-        // transient only ever gets a handful of votes, while the steady-state picture (boot logo or not)
-        // dominates the window.
+        // Instead: watch ~0.5s of frames and go with whichever resolution shows up most — enough for the
+        // emulator to settle on its real render resolution while keeping startup snappy.
         runtime.canvas_votes[{width, height}] += 1;
-        constexpr unsigned kCanvasWarmupFrames = 90;
+        constexpr unsigned kCanvasWarmupFrames = 30;
         if (++runtime.canvas_warmup_frames < kCanvasWarmupFrames) return;
         unsigned best_votes = 0;
         for (const auto &[size, votes] : runtime.canvas_votes) {

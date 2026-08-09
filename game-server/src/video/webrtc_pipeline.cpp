@@ -134,7 +134,7 @@ void WebRtcPipeline::start(unsigned width, unsigned height, double fps, unsigned
         // against its own quota — worse, it also competes with the emulator's own CPU budget in the same
         // container. Two encoder threads is plenty for 1080p60 at ultrafast and leaves room for the core.
         "videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=ultrafast threads=2 bitrate=" + std::to_string(bitrate_kbps) +
-        " key-int-max=60 bframes=0 ! h264parse config-interval=1 ! video/x-h264,stream-format=byte-stream,alignment=au ! rtph264pay config-interval=1 pt=96 ! "
+        " key-int-max=30 bframes=0 ! h264parse config-interval=1 ! video/x-h264,stream-format=byte-stream,alignment=au ! rtph264pay config-interval=1 pt=96 ! "
         "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 ! tee name=video_tee allow-not-linked=true "
         // opusenc otherwise defaults to a much higher VBR target than game audio (chiptune/simple mixes,
         // usually mono or near-mono source material) actually needs; explicit low bitrate saves real
@@ -182,7 +182,7 @@ void WebRtcPipeline::start(unsigned width, unsigned height, double fps, unsigned
         stop();
         throw std::runtime_error("cannot start webrtcbin pipeline");
     }
-    gst_element_get_state(pipeline_, nullptr, nullptr, 5 * GST_SECOND);
+    gst_element_get_state(pipeline_, nullptr, nullptr, 2 * GST_SECOND);
     std::cout << "[WEBRTC] webrtcbin pipeline started" << std::endl;
 }
 
@@ -201,13 +201,13 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     }
     g_object_set(peer->webrtcbin, "bundle-policy", 3 /* GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE */, nullptr);
     g_object_set(peer->webrtcbin, "stun-server", "stun://stun.l.google.com:19302", nullptr);
-    // webrtcbin's internal jitterbuffer defaults to ~200ms of latency; on a low-loss LAN/VPS link that's
-    // pure added input/video lag with no benefit, so pull it down close to the wire.
-    g_object_set(peer->webrtcbin, "latency", 30 /* ms */, nullptr);
+    // webrtcbin's internal jitterbuffer defaults to ~200ms; pull down close to the wire for minimal
+    // glass-to-glass latency. On a controlled VPS→browser link this is safe.
+    g_object_set(peer->webrtcbin, "latency", 15 /* ms */, nullptr);
+    g_object_set(peer->webrtcbin, "ice-candidate-pool-size", 1u, nullptr);
     // Drop old buffers instead of queueing them: a laggy peer should skip ahead rather than build up
-    // latency. A single H.264 keyframe fragments into many RTP packets, so the buffer cap must stay
-    // generous — too small and it drops mid-keyframe, which starves the decoder of anything to show at all.
-    g_object_set(peer->video_queue, "leaky", 2 /* downstream */, "max-size-buffers", 300, "max-size-time", (guint64)500000000 /* 500ms */, "max-size-bytes", 0, nullptr);
+    // latency. 150ms keeps video tight without starved-decoder risk; audio stays even tighter.
+    g_object_set(peer->video_queue, "leaky", 2 /* downstream */, "max-size-buffers", 120, "max-size-time", (guint64)150000000 /* 150ms */, "max-size-bytes", 0, nullptr);
     g_object_set(peer->audio_queue, "leaky", 2 /* downstream */, "max-size-buffers", 120, "max-size-time", (guint64)150000000 /* 150ms */, "max-size-bytes", 0, nullptr);
     gst_bin_add_many(GST_BIN(pipeline_), peer->webrtcbin, peer->video_queue, peer->audio_queue, nullptr);
     if (!gst_element_link(video_tee_, peer->video_queue) || !gst_element_link(peer->video_queue, peer->webrtcbin) ||
