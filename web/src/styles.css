@@ -880,27 +880,85 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
     touch-action: none; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
     transition: transform .08s ease, background-color .08s ease, border-color .08s ease, box-shadow .08s ease;
   }
+  /* PS1 controller body background */
+  .console-ps1.touch-controls::before {
+    content: ""; position: absolute;
+    bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 380px; height: 220px; border-radius: 40px 40px 20px 20px;
+    background: linear-gradient(180deg, rgba(28,28,36,0.85) 0%, rgba(20,20,28,0.92) 100%);
+    border: 1.5px solid rgba(255,255,255,.06);
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04);
+    pointer-events: none; z-index: 0;
+  }
   .touch-btn {
     pointer-events: auto; display: flex; align-items: center; justify-content: center;
     font-weight: 800; color: #fff; backdrop-filter: blur(8px);
   }
-  /* D-Pad */
+  /* D-Pad — realistic cross shape */
   .touch-dpad {
-    background: rgba(15, 23, 42, 0.7); border: 1.5px solid rgba(255,255,255,.15); border-radius: 14px;
+    background: rgba(30, 30, 38, 0.9); border: none; border-radius: 6px;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.6), 0 1px 2px rgba(255,255,255,0.05);
   }
-  .touch-dpad.pressed { background: rgba(0, 168, 255, 0.4); border-color: var(--cyan); box-shadow: 0 0 16px var(--cyan-glow); }
+  .touch-dpad.pressed { background: rgba(40, 40, 52, 0.95); box-shadow: inset 0 1px 2px rgba(0,0,0,0.4), 0 0 8px rgba(0,168,255,0.3); }
   .touch-dpad::after {
-    content: ""; position: absolute; top: 50%; left: 50%; width: 16px; height: 16px;
-    transform: translate(-50%, -50%); border-radius: 4px;
-    background: rgba(255,255,255,.12); pointer-events: none;
+    content: ""; position: absolute; top: 50%; left: 50%; width: 12px; height: 12px;
+    transform: translate(-50%, -50%); border-radius: 2px;
+    background: rgba(255,255,255,.06); pointer-events: none;
   }
-  /* Action buttons */
+  /* D-Pad center indicator — cross lines */
+  .touch-dpad::before {
+    content: ""; position: absolute; top: 50%; left: 50%;
+    width: 70%; height: 2px; transform: translate(-50%, -50%);
+    background: rgba(255,255,255,.08); pointer-events: none; border-radius: 1px;
+  }
+
+  /* Action buttons — authentic PS1 DualShock colors */
   .touch-circle {
     border-radius: 50%;
-    background: rgba(139, 92, 246, 0.35); border: 2px solid rgba(255,255,255,.25);
-    box-shadow: 0 4px 14px rgba(0,0,0,0.4); font-size: 18px;
+    border: 2px solid rgba(255,255,255,.2);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.1);
+    font-size: 20px; font-weight: 900; text-shadow: 0 1px 3px rgba(0,0,0,0.5);
   }
-  .touch-circle.pressed { background: rgba(0, 168, 255, 0.75); border-color: #fff; transform: scale(.9); box-shadow: 0 0 20px var(--cyan); }
+  /* ✕ (Cross) — blue */
+  .console-ps1 .btn-a {
+    background: radial-gradient(circle at 40% 35%, rgba(0,140,220,0.9), rgba(0,80,160,0.95));
+    border-color: rgba(0,180,255,0.5); color: #fff;
+  }
+  .console-ps1 .btn-a.pressed {
+    background: radial-gradient(circle at 40% 35%, rgba(0,180,255,1), rgba(0,100,200,1));
+    box-shadow: 0 0 20px rgba(0,168,255,0.6), inset 0 1px 2px rgba(255,255,255,0.2);
+    transform: scale(.92);
+  }
+  /* ○ (Circle) — red/pink */
+  .console-ps1 .btn-b {
+    background: radial-gradient(circle at 40% 35%, rgba(230,40,90,0.9), rgba(170,20,60,0.95));
+    border-color: rgba(255,60,110,0.5); color: #fff;
+  }
+  .console-ps1 .btn-b.pressed {
+    background: radial-gradient(circle at 40% 35%, rgba(255,60,110,1), rgba(200,30,80,1));
+    box-shadow: 0 0 20px rgba(255,42,109,0.6), inset 0 1px 2px rgba(255,255,255,0.2);
+    transform: scale(.92);
+  }
+  /* △ (Triangle) — green */
+  .console-ps1 .btn-y {
+    background: radial-gradient(circle at 40% 35%, rgba(0,200,100,0.9), rgba(0,140,60,0.95));
+    border-color: rgba(0,230,118,0.5); color: #fff;
+  }
+  .console-ps1 .btn-y.pressed {
+    background: radial-gradient(circle at 40% 35%, rgba(0,230,118,1), rgba(0,170,80,1));
+    box-shadow: 0 0 20px rgba(0,230,118,0.6), inset 0 1px 2px rgba(255,255,255,0.2);
+    transform: scale(.92);
+  }
+  /* □ (Square) — pink/magenta */
+  .console-ps1 .btn-x {
+    background: radial-gradient(circle at 40% 35%, rgba(220,80,160,0.9), rgba(170,40,120,0.95));
+    border-color: rgba(240,100,180,0.5); color: #fff;
+  }
+  .console-ps1 .btn-x.pressed {
+    background: radial-gradient(circle at 40% 35%, rgba(240,100,180,1), rgba(200,60,140,1));
+    box-shadow: 0 0 20px rgba(240,147,43,0.6), inset 0 1px 2px rgba(255,255,255,0.2);
+    transform: scale(.92);
+  }
   /* System buttons (pill) */
   .touch-pill {
     border-radius: 999px;
@@ -923,40 +981,64 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
     position: absolute; top: calc(58px + env(safe-area-inset-top)); left: env(safe-area-inset-left); right: env(safe-area-inset-right);
     display: flex; justify-content: space-between; padding: 0 14px; pointer-events: none;
   }
-  /* Rect buttons (PS1 L/R/L2/R2 inline) */
+  /* Rect buttons (PS1 L1/R1/L2/R2) — realistic trigger style */
   .touch-rect {
-    border-radius: 10px;
-    background: rgba(15, 23, 42, 0.85); border: 1.5px solid rgba(255,255,255,.2);
-    color: #fff; font-size: 11px; font-weight: 800; letter-spacing: .03em;
+    border-radius: 8px;
+    background: linear-gradient(180deg, rgba(50,50,65,0.95) 0%, rgba(35,35,48,0.95) 100%);
+    border: 1.5px solid rgba(255,255,255,.12);
+    color: rgba(255,255,255,0.8); font-size: 11px; font-weight: 800; letter-spacing: .03em;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
   }
-  .touch-rect.pressed { background: rgba(139, 92, 246, 0.55); border-color: var(--signal); transform: scale(.92); box-shadow: 0 0 16px var(--signal-glow); }
-  .console-ps1 .btn-l, .console-ps1 .btn-r { background: rgba(139, 92, 246, 0.25); border-color: rgba(139,92,246,0.4); font-size: 12px; }
-  .console-ps1 .btn-l.pressed, .console-ps1 .btn-r.pressed { background: rgba(139,92,246,0.6); }
-  .console-ps1 .btn-l2, .console-ps1 .btn-r2 { background: rgba(100,116,139,0.25); border-color: rgba(100,116,139,0.4); font-size: 12px; }
-  .console-ps1 .btn-l2.pressed, .console-ps1 .btn-r2.pressed { background: rgba(100,116,139,0.6); }
-  /* Virtual joystick */
+  .touch-rect.pressed {
+    background: linear-gradient(180deg, rgba(60,60,80,0.95) 0%, rgba(45,45,60,0.95) 100%);
+    border-color: rgba(139,92,246,0.5); transform: scale(.93);
+    box-shadow: 0 0 12px rgba(139,92,246,0.3), inset 0 1px 2px rgba(0,0,0,0.3);
+  }
+  .console-ps1 .btn-l, .console-ps1 .btn-r {
+    background: linear-gradient(180deg, rgba(55,55,70,0.95) 0%, rgba(38,38,52,0.95) 100%);
+    border-color: rgba(255,255,255,.15); font-size: 13px; font-weight: 900;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+  .console-ps1 .btn-l.pressed, .console-ps1 .btn-r.pressed {
+    background: linear-gradient(180deg, rgba(70,70,90,0.95) 0%, rgba(50,50,65,0.95) 100%);
+    border-color: rgba(139,92,246,0.5); box-shadow: 0 0 12px rgba(139,92,246,0.3);
+  }
+  .console-ps1 .btn-l2, .console-ps1 .btn-r2 {
+    background: linear-gradient(180deg, rgba(45,45,58,0.95) 0%, rgba(30,30,42,0.95) 100%);
+    border-color: rgba(255,255,255,.1); font-size: 13px; font-weight: 900;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05);
+  }
+  .console-ps1 .btn-l2.pressed, .console-ps1 .btn-r2.pressed {
+    background: linear-gradient(180deg, rgba(55,55,70,0.95) 0%, rgba(40,40,55,0.95) 100%);
+    border-color: rgba(139,92,246,0.4); box-shadow: 0 0 10px rgba(139,92,246,0.2);
+  }
+  /* Virtual joystick — realistic analog stick */
   .virtual-joystick { touch-action: none; pointer-events: auto; z-index: 2; }
   .joystick-base {
-    position: absolute; background: rgba(15, 23, 42, 0.7); border: 2px solid rgba(255,255,255,.15);
-    backdrop-filter: blur(8px);
+    position: absolute; border-radius: 50%;
+    background: radial-gradient(circle at 50% 50%, rgba(30,30,40,0.95) 0%, rgba(20,20,28,0.98) 70%, rgba(15,15,22,1) 100%);
+    border: 2.5px solid rgba(255,255,255,.1);
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4);
   }
   .joystick-thumb {
-    position: absolute; top: 50%; left: 50%; background: rgba(139, 92, 246, 0.6);
-    border: 2px solid rgba(255,255,255,.35); box-shadow: 0 2px 10px rgba(0,0,0,0.4);
-    transition: background .1s;
+    position: absolute; top: 50%; left: 50%; border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, rgba(60,60,75,1) 0%, rgba(40,40,52,1) 60%, rgba(30,30,40,1) 100%);
+    border: 2px solid rgba(255,255,255,.15);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.5), inset 0 1px 2px rgba(255,255,255,0.08);
+    transition: background .1s, box-shadow .1s;
   }
-  .joystick-thumb:active, .virtual-joystick:active .joystick-thumb {
-    background: rgba(0, 168, 255, 0.7); border-color: var(--cyan); box-shadow: 0 0 16px var(--cyan-glow);
+  .virtual-joystick:active .joystick-thumb, .joystick-thumb:active {
+    background: radial-gradient(circle at 40% 35%, rgba(70,70,90,1) 0%, rgba(50,50,65,1) 60%, rgba(35,35,48,1) 100%);
+    border-color: rgba(0,168,255,0.4);
+    box-shadow: 0 0 16px rgba(0,168,255,0.3), 0 3px 10px rgba(0,0,0,0.5);
+  }
+  /* Joystick texture rings */
+  .joystick-thumb::after {
+    content: ""; position: absolute; inset: 25%; border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,.06);
   }
   /* Console-specific button colors */
-  .console-ps1 .btn-a { background: rgba(0, 168, 255, 0.35); border-color: rgba(0, 168, 255, 0.5); }
-  .console-ps1 .btn-a.pressed { background: rgba(0, 168, 255, 0.8); }
-  .console-ps1 .btn-b { background: rgba(255, 42, 109, 0.35); border-color: rgba(255, 42, 109, 0.5); }
-  .console-ps1 .btn-b.pressed { background: rgba(255, 42, 109, 0.8); }
-  .console-ps1 .btn-y { background: rgba(0, 230, 118, 0.35); border-color: rgba(0, 230, 118, 0.5); }
-  .console-ps1 .btn-y.pressed { background: rgba(0, 230, 118, 0.8); }
-  .console-ps1 .btn-x { background: rgba(240, 147, 43, 0.35); border-color: rgba(240, 147, 43, 0.5); }
-  .console-ps1 .btn-x.pressed { background: rgba(240, 147, 43, 0.8); }
   .console-snes .btn-a { background: rgba(255, 42, 109, 0.35); border-color: rgba(255, 42, 109, 0.5); }
   .console-snes .btn-a.pressed { background: rgba(255, 42, 109, 0.8); }
   .console-snes .btn-b { background: rgba(240, 147, 43, 0.35); border-color: rgba(240, 147, 43, 0.5); }
@@ -1321,9 +1403,11 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
   }
 
   /* Touch controls mobile */
-  .touch-btn.touch-circle { font-size: 15px; }
-  .touch-btn.touch-pill { font-size: 9px; }
+  .touch-btn.touch-circle { font-size: 17px; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+  .touch-btn.touch-pill { font-size: 9px; letter-spacing: .08em; }
   .touch-shoulder-btn { width: 56px; height: 34px; font-size: 11px; font-weight: 800; }
+  .console-ps1 .touch-dpad { border-radius: 4px; }
+  .console-ps1 .touch-rect { border-radius: 6px; }
 
   .social-panel {
     position: fixed; top: auto; bottom: 0; left: 0; right: 0; width: 100%; height: 72vh;
