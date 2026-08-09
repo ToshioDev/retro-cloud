@@ -1,0 +1,7 @@
+services:
+  signaling:
+    ports:
+      - "8081:8080"
+  web:
+    ports:
+      - "5180:5173"

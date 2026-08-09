@@ -408,26 +408,29 @@ function getButtonLabel(btn: Button, consoleId: string): string {
   return btn;
 }
 
-function TouchControls({ sendInput, layout, size, consoleId = "ps1" }: { sendInput: (button: Button, pressed: boolean) => void; layout: "standard" | "swapped"; size: "compact" | "large"; consoleId?: string }) {
+function TouchControls({ sendInput, layout, size, consoleId = "ps1", customPositions = {} }: { sendInput: (button: Button, pressed: boolean) => void; layout: "standard" | "swapped"; size: "compact" | "large"; consoleId?: string; customPositions?: Record<string, { x: number; y: number }> }) {
   const preset = CONTROL_PRESETS[consoleId] ?? CONTROL_PRESETS.ps1;
   const scale = size === "large" ? 1.15 : 1;
   return (
     <div className={`touch-controls layout-${layout} size-${size} console-${consoleId}`}>
-      {preset.buttons.map((btn) => (
-        <TouchButton
-          key={btn.id}
-          label={getButtonLabel(btn.id, consoleId)}
-          className={`touch-btn touch-${btn.shape} btn-${btn.id.toLowerCase()}`}
-          style={{
-            position: "absolute",
-            left: btn.x * scale,
-            top: btn.y * scale,
-            width: btn.size * scale,
-            height: btn.size * scale,
-          }}
-          onPress={(p) => sendInput(btn.id, p)}
-        />
-      ))}
+      {preset.buttons.map((btn) => {
+        const custom = customPositions[btn.id];
+        return (
+          <TouchButton
+            key={btn.id}
+            label={getButtonLabel(btn.id, consoleId)}
+            className={`touch-btn touch-${btn.shape} btn-${btn.id.toLowerCase()}`}
+            style={{
+              position: "absolute",
+              left: custom ? custom.x : btn.x * scale,
+              top: custom ? custom.y : btn.y * scale,
+              width: btn.size * scale,
+              height: btn.size * scale,
+            }}
+            onPress={(p) => sendInput(btn.id, p)}
+          />
+        );
+      })}
       {preset.buttons.some((b) => b.id === "L") && (
         <div className="touch-shoulders">
           <TouchButton label="L" className="touch-shoulder-btn" onPress={(p) => sendInput("L", p)} />
@@ -440,6 +443,79 @@ function TouchControls({ sendInput, layout, size, consoleId = "ps1" }: { sendInp
           <TouchButton label="R2" className="touch-shoulder-btn" onPress={(p) => sendInput("R2", p)} />
         </div>
       )}
+    </div>
+  );
+}
+
+function ControlEditor({ consoleId, customPositions, onPositionsChange, onClose, t }: {
+  consoleId: string;
+  customPositions: Record<string, { x: number; y: number }>;
+  onPositionsChange: (positions: Record<string, { x: number; y: number }>) => void;
+  onClose: () => void;
+  t: (key: Parameters<typeof translate>[1]) => string;
+}) {
+  const preset = CONTROL_PRESETS[consoleId] ?? CONTROL_PRESETS.ps1;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>(() => {
+    const initial: Record<string, { x: number; y: number }> = {};
+    preset.buttons.forEach((btn) => {
+      const custom = customPositions[btn.id];
+      initial[btn.id] = custom ?? { x: btn.x, y: btn.y };
+    });
+    return initial;
+  });
+  const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const handlePointerDown = (id: string, e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const btn = preset.buttons.find((b) => b.id === id);
+    if (!btn) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    dragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    setDragging(id);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!dragging || !containerRef.current) return;
+    const container = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - container.left - dragOffset.current.x;
+    const y = e.clientY - container.top - dragOffset.current.y;
+    setPositions((prev) => ({ ...prev, [dragging]: { x: Math.max(0, x), y: Math.max(0, y) } }));
+  };
+
+  const handlePointerUp = () => { setDragging(null); };
+
+  const handleSave = () => { onPositionsChange(positions); onClose(); };
+
+  return (
+    <div className="control-editor-overlay" onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}>
+      <div className="control-editor-toolbar">
+        <span style={{ fontSize: 14, fontWeight: 600 }}>{t("dragToReposition")}</span>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="control-editor-cancel" onClick={onClose}>{t("cancel")}</button>
+          <button className="control-editor-save" onClick={handleSave}>{t("save")}</button>
+        </div>
+      </div>
+      <div className="control-editor-area" ref={containerRef}>
+        {preset.buttons.map((btn) => {
+          const pos = positions[btn.id];
+          const isDragging = dragging === btn.id;
+          return (
+            <div
+              key={btn.id}
+              className={`control-editor-ghost ${btn.shape === "circle" ? "ghost-circle" : "ghost-pill"} ${isDragging ? "dragging" : ""}`}
+              style={{ position: "absolute", left: pos.x, top: pos.y, width: btn.size, height: btn.size }}
+              onPointerDown={(e) => handlePointerDown(btn.id, e)}
+            >
+              <span>{getButtonLabel(btn.id, consoleId)}</span>
+            </div>
+          );
+        })}
+        <div className="control-editor-hint">{t("touchDragHint")}</div>
+      </div>
     </div>
   );
 }
@@ -536,6 +612,10 @@ export default function App() {
   const [scale, setScale] = useState<string>("fit");
   const [touchLayout, setTouchLayout] = useState<"standard" | "swapped">(() => (localStorage.getItem("rc_touch_layout") === "swapped" ? "swapped" : "standard"));
   const [touchSize, setTouchSize] = useState<"compact" | "large">(() => (localStorage.getItem("rc_touch_size") === "large" ? "large" : "compact"));
+  const [editingControls, setEditingControls] = useState(false);
+  const [customPositions, setCustomPositions] = useState<Record<string, { x: number; y: number }>>(() => {
+    try { return JSON.parse(localStorage.getItem("rc_custom_ctrl") ?? "{}"); } catch { return {}; }
+  });
   const [isTouchDevice] = useState(() => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const stageWrapRef = useRef<HTMLDivElement>(null);
@@ -1140,6 +1220,7 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem("rc_touch_layout", touchLayout); }, [touchLayout]);
   useEffect(() => { localStorage.setItem("rc_touch_size", touchSize); }, [touchSize]);
+  useEffect(() => { localStorage.setItem("rc_custom_ctrl", JSON.stringify(customPositions)); }, [customPositions]);
 
   useEffect(() => {
     const onFsChange = () => { if (!document.fullscreenElement) setIsFullscreen(false); };
@@ -2433,7 +2514,16 @@ export default function App() {
             )}
             {canvasToast && <div className="canvas-toast">{canvasToast}</div>}
           </div>
-          <TouchControls sendInput={sendInput} layout={touchLayout} size={touchSize} consoleId={activeConsole} />
+          <TouchControls sendInput={sendInput} layout={touchLayout} size={touchSize} consoleId={activeConsole} customPositions={customPositions} />
+          {editingControls && (
+            <ControlEditor
+              consoleId={activeConsole}
+              customPositions={customPositions}
+              onPositionsChange={setCustomPositions}
+              onClose={() => setEditingControls(false)}
+              t={t}
+            />
+          )}
           <button className="mobile-panel-fab" onClick={(e) => { e.stopPropagation(); setMobilePanelOpen(true); }} aria-label={t("players")}>
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" />
@@ -2656,6 +2746,21 @@ export default function App() {
                         <button className={touchSize === "compact" ? "scale-option active" : "scale-option"} onClick={() => setTouchSize("compact")}>{t("compact")}</button>
                         <button className={touchSize === "large" ? "scale-option active" : "scale-option"} onClick={() => setTouchSize("large")}>{t("large")}</button>
                       </div>
+                      <button
+                        className="edit-controls-btn"
+                        onClick={() => { setEditingControls(true); setSettingsOpen(false); }}
+                        style={{ marginTop: 10, width: "100%", padding: "10px 12px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, color: "#fff", fontSize: 13, cursor: "pointer", textAlign: "left" }}
+                      >
+                        ✏️ {t("editControls")}
+                      </button>
+                      {Object.keys(customPositions).length > 0 && (
+                        <button
+                          onClick={() => setCustomPositions({})}
+                          style={{ marginTop: 6, width: "100%", padding: "10px 12px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 8, color: "var(--danger)", fontSize: 13, cursor: "pointer" }}
+                        >
+                          🗑️ {t("resetControls")}
+                        </button>
+                      )}
                     </>
                   )}
 

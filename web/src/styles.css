@@ -1280,7 +1280,7 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
   .stage-fixed { padding: 0; }
 
   .mobile-panel-fab {
-    display: flex; position: absolute; top: auto; bottom: calc(14px + env(safe-area-inset-bottom)); right: calc(14px + env(safe-area-inset-right)); z-index: 3;
+    display: flex; position: absolute; top: calc(14px + env(safe-area-inset-top)); right: calc(14px + env(safe-area-inset-right)); z-index: 3;
     width: 46px; height: 46px; padding: 0; align-items: center; justify-content: center;
     border-radius: 50%; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(10px);
     border: 1px solid rgba(255,255,255,.2); color: #fff; pointer-events: auto;
@@ -1337,4 +1337,40 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
     cursor: pointer;
   }
   .settings-close-mobile:active { transform: scale(0.98); }
+
+  .control-editor-overlay {
+    position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.92);
+    display: flex; flex-direction: column; touch-action: none;
+  }
+  .control-editor-toolbar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; padding-top: calc(12px + env(safe-area-inset-top));
+    background: rgba(15,23,42,0.95); border-bottom: 1px solid rgba(255,255,255,0.08);
+    flex-shrink: 0; gap: 10px;
+  }
+  .control-editor-cancel, .control-editor-save {
+    padding: 8px 16px; border-radius: 8px; border: none; font-size: 13px;
+    font-weight: 600; cursor: pointer;
+  }
+  .control-editor-cancel { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7); }
+  .control-editor-save { background: var(--signal); color: #fff; }
+  .control-editor-area {
+    flex: 1; position: relative; overflow: hidden;
+  }
+  .control-editor-ghost {
+    display: flex; align-items: center; justify-content: center;
+    border: 2px dashed rgba(255,255,255,0.4); color: rgba(255,255,255,0.7);
+    font-size: 13px; font-weight: 700; touch-action: none; user-select: none;
+    transition: border-color .15s, background .15s;
+  }
+  .control-editor-ghost.ghost-circle { border-radius: 50%; }
+  .control-editor-ghost.ghost-pill { border-radius: 24px; }
+  .control-editor-ghost.dragging {
+    border-color: var(--signal); background: rgba(139,92,246,0.2);
+  }
+  .control-editor-hint {
+    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,255,255,0.4); font-size: 12px; text-align: center;
+    white-space: nowrap;
+  }
 }
