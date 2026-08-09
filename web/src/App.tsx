@@ -108,9 +108,9 @@ function TouchButton({ label, className, onPress }: { label: string; className: 
   );
 }
 
-function TouchControls({ sendInput }: { sendInput: (button: Button, pressed: boolean) => void }) {
+function TouchControls({ sendInput, layout, size }: { sendInput: (button: Button, pressed: boolean) => void; layout: "standard" | "swapped"; size: "compact" | "large" }) {
   return (
-    <div className="touch-controls">
+    <div className={`touch-controls layout-${layout} size-${size}`}>
       <div className="touch-dpad">
         <TouchButton label="" className="touch-dpad-btn dpad-up" onPress={(p) => sendInput("UP", p)} />
         <TouchButton label="" className="touch-dpad-btn dpad-down" onPress={(p) => sendInput("DOWN", p)} />
@@ -178,6 +178,9 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"display" | "audio" | "controls">("display");
   const [scale, setScale] = useState<string>(() => localStorage.getItem("rc_scale") ?? "fit");
+  const [touchLayout, setTouchLayout] = useState<"standard" | "swapped">(() => (localStorage.getItem("rc_touch_layout") === "swapped" ? "swapped" : "standard"));
+  const [touchSize, setTouchSize] = useState<"compact" | "large">(() => (localStorage.getItem("rc_touch_size") === "large" ? "large" : "compact"));
+  const [isTouchDevice] = useState(() => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches);
   const [volume, setVolume] = useState<number>(() => Number(localStorage.getItem("rc_volume") ?? "100"));
   const [muted, setMuted] = useState<boolean>(() => localStorage.getItem("rc_muted") === "1");
   const volumeRef = useRef(volume);
@@ -540,6 +543,9 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("rc_scale", scale);
   }, [scale]);
+
+  useEffect(() => { localStorage.setItem("rc_touch_layout", touchLayout); }, [touchLayout]);
+  useEffect(() => { localStorage.setItem("rc_touch_size", touchSize); }, [touchSize]);
 
   function sendChat() {
     const text = chatInput.trim();
@@ -919,7 +925,7 @@ export default function App() {
             />
             {mediaState !== "Receiving media" && <div className="placeholder">{translate(lang, (mediaKeys[mediaState] as any) ?? "waitingForGameServer")}</div>}
           </div>
-          <TouchControls sendInput={sendInput} />
+          <TouchControls sendInput={sendInput} layout={touchLayout} size={touchSize} />
           <button className="mobile-panel-fab" onClick={() => setMobilePanelOpen(true)} aria-label={t("players")}>
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" />
@@ -991,7 +997,7 @@ export default function App() {
             <div className="settings-tabs">
               <button className={settingsTab === "display" ? "tab active" : "tab"} onClick={() => setSettingsTab("display")}>{t("display")}</button>
               <button className={settingsTab === "audio" ? "tab active" : "tab"} onClick={() => setSettingsTab("audio")}>{t("audio")}</button>
-              <button className={settingsTab === "controls" ? "tab active" : "tab"} onClick={() => setSettingsTab("controls")}>{t("controls")}</button>
+              <button className={settingsTab === "controls" ? "tab active" : "tab"} onClick={() => setSettingsTab("controls")}>{isTouchDevice ? t("layout") : t("controls")}</button>
             </div>
 
             {settingsTab === "display" && (
@@ -1023,7 +1029,22 @@ export default function App() {
               </div>
             )}
 
-            {settingsTab === "controls" && (
+            {settingsTab === "controls" && isTouchDevice && (
+              <div className="settings-section">
+                <p className="settings-label">{t("handedness")}</p>
+                <div className="scale-options">
+                  <button className={touchLayout === "standard" ? "scale-option active" : "scale-option"} onClick={() => setTouchLayout("standard")}>{t("standard")}</button>
+                  <button className={touchLayout === "swapped" ? "scale-option active" : "scale-option"} onClick={() => setTouchLayout("swapped")}>{t("lefthanded")}</button>
+                </div>
+                <p className="settings-label" style={{ marginTop: 10 }}>{t("buttonSize")}</p>
+                <div className="scale-options">
+                  <button className={touchSize === "compact" ? "scale-option active" : "scale-option"} onClick={() => setTouchSize("compact")}>{t("compact")}</button>
+                  <button className={touchSize === "large" ? "scale-option active" : "scale-option"} onClick={() => setTouchSize("large")}>{t("large")}</button>
+                </div>
+              </div>
+            )}
+
+            {settingsTab === "controls" && !isTouchDevice && (
               <div className="settings-section">
                 <p className="settings-label">{t("keyboardBindings")} · P{playerNumber ?? 1}</p>
                 <ul className="keybind-list">

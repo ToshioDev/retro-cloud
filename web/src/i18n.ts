@@ -27,6 +27,13 @@ const dict = {
   room: { en: "Room", es: "Sala" },
 
   account: { en: "Account", es: "Cuenta" },
+  layout: { en: "Layout", es: "Diseño" },
+  handedness: { en: "Control side", es: "Lado de los controles" },
+  standard: { en: "Standard", es: "Estándar" },
+  lefthanded: { en: "Left-handed", es: "Zurdo" },
+  buttonSize: { en: "Button size", es: "Tamaño de botones" },
+  compact: { en: "Compact", es: "Compacto" },
+  large: { en: "Large", es: "Grande" },
   roomsTab: { en: "Rooms", es: "Salas" },
   catalogTab: { en: "Catalog", es: "Catálogo" },
   catalogTitle: { en: "Game catalog", es: "Catálogo de juegos" },

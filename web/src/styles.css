@@ -379,6 +379,19 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
     background: rgba(20,23,31,.78); border: 1px solid rgba(255,255,255,.15); color: #fff;
   }
   .touch-system-btn.pressed { background: rgba(124,92,255,.55); border-color: var(--signal); transform: scale(.94); }
+
+  /* Left-handed layout: mirror the D-pad and face buttons across the screen */
+  .touch-controls.layout-swapped .touch-dpad { left: auto; right: calc(14px + env(safe-area-inset-right)); }
+  .touch-controls.layout-swapped .touch-actions { right: auto; left: calc(14px + env(safe-area-inset-left)); }
+
+  /* Larger touch targets for players who want a bigger hit area */
+  .touch-controls.size-large .touch-dpad { width: 176px; height: 176px; }
+  .touch-controls.size-large .touch-dpad-btn { width: 62px; height: 62px; }
+  .touch-controls.size-large .dpad-up, .touch-controls.size-large .dpad-down { left: 57px; }
+  .touch-controls.size-large .dpad-left, .touch-controls.size-large .dpad-right { top: 57px; }
+  .touch-controls.size-large .touch-actions { width: 150px; height: 118px; }
+  .touch-controls.size-large .touch-action-btn { width: 74px; height: 74px; font-size: 18px; }
+  .touch-controls.size-large .action-a { bottom: 44px; }
 }
 /* Short landscape phone screens: shrink the pad/buttons and tuck them tighter so the game area
    underneath isn't mostly covered by the controller overlay. */
