@@ -128,7 +128,12 @@ void WebRtcPipeline::start(unsigned width, unsigned height, double fps, unsigned
                       ",height=" + std::to_string(height) + ",framerate=" +
                       std::to_string(static_cast<unsigned>(fps * 1000)) + "/1000";
     const auto description = "appsrc name=video_source is-live=true format=time do-timestamp=false block=false max-buffers=2 leaky-type=downstream ! "
-        "videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=ultrafast bitrate=" + std::to_string(bitrate_kbps) +
+        // threads=2: x264 defaults to one encoder thread per detected CPU, but Docker's NanoCpus quota
+        // (see signaling's spawnGameServer) doesn't change what /proc reports inside the container, so
+        // without a cap it would happily spin up as many threads as the *host* has cores and thrash
+        // against its own quota — worse, it also competes with the emulator's own CPU budget in the same
+        // container. Two encoder threads is plenty for 1080p60 at ultrafast and leaves room for the core.
+        "videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=ultrafast threads=2 bitrate=" + std::to_string(bitrate_kbps) +
         " key-int-max=60 bframes=0 ! h264parse config-interval=1 ! video/x-h264,stream-format=byte-stream,alignment=au ! rtph264pay config-interval=1 pt=96 ! "
         "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 ! tee name=video_tee allow-not-linked=true "
         "appsrc name=audio_source is-live=true format=time do-timestamp=false block=false max-buffers=8 leaky-type=downstream ! "

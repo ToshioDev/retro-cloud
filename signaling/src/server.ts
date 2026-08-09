@@ -177,6 +177,11 @@ async function spawnGameServer(game: string, romPath: string, owner: string, vis
   const image = await resolveGameServerImage();
   const binds = [`${romsHostDir}:/roms:ro`];
   if (biosHostDir) binds.push(`${biosHostDir}:/system:ro`);
+  // This host is shared with several other unrelated apps. Without a cap, one room (PS1 3D titles
+  // especially — CPU-bound emulation plus CPU-bound x264 encoding) can spin unbounded, and an orphaned
+  // container (see reconcileOrphanedGameServers) left the whole VPS unresponsive for every user. PS1 gets
+  // a bit more headroom than NES/SNES since 3D emulation is meaningfully heavier than 2D.
+  const cpuCores = game === "ps1" ? 2 : 1;
   const container = await docker.createContainer({
     Image: image,
     Env: [
@@ -191,6 +196,9 @@ async function spawnGameServer(game: string, romPath: string, owner: string, vis
       Binds: binds,
       NetworkMode: "host",
       AutoRemove: true,
+      NanoCpus: cpuCores * 1_000_000_000,
+      Memory: 1024 * 1024 * 1024,
+      MemorySwap: 1024 * 1024 * 1024,
     },
   });
   await container.start();
@@ -215,6 +223,30 @@ async function teardownRoom(room: string) {
     console.log(`[SIGNALING] stopped game-server for empty room ${room}`);
   } catch (error) {
     console.error(`[SIGNALING] failed to stop game-server for room ${room}:`, error instanceof Error ? error.message : error);
+  }
+}
+
+// Room ownership lives only in memory (managedRooms/roomOwners/etc.), so every redeploy/restart of this
+// process forgets every game-server container it previously spawned — they keep running (and burning CPU
+// on the shared host indefinitely) with nothing left to ever stop them via teardownRoom(). This orphaned
+// several containers across repeated redeploys and starved the whole VPS (load average >20 on 8 cores),
+// taking the rest of the app down for every user. Since this process's in-memory state is always empty
+// right after boot, any game-server container already running at that point is by definition orphaned —
+// clean them all up before accepting new rooms.
+async function reconcileOrphanedGameServers() {
+  if (!docker) return;
+  try {
+    const containers = await docker.listContainers({ all: false, filters: JSON.stringify({ ancestor: [gameServerImage] }) });
+    for (const info of containers) {
+      try {
+        await docker.getContainer(info.Id).stop();
+        console.log(`[SIGNALING] stopped orphaned game-server container ${info.Id.slice(0, 12)} from a previous instance`);
+      } catch (error) {
+        console.error(`[SIGNALING] failed to stop orphaned container ${info.Id.slice(0, 12)}:`, error instanceof Error ? error.message : error);
+      }
+    }
+  } catch (error) {
+    console.error("[SIGNALING] failed to list containers for orphan cleanup:", error instanceof Error ? error.message : error);
   }
 }
 
@@ -897,4 +929,6 @@ setInterval(() => {
   }
 }, 30_000);
 
-httpServer.listen(port, () => console.log(`[SIGNALING] listening on :${port}`));
+void reconcileOrphanedGameServers().then(() => {
+  httpServer.listen(port, () => console.log(`[SIGNALING] listening on :${port}`));
+});

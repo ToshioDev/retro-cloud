@@ -67,6 +67,7 @@ struct Runtime {
     bool canvas_ready = false;
     unsigned canvas_warmup_frames = 0;
     std::map<std::pair<unsigned, unsigned>, unsigned> canvas_votes;
+    std::string game_id = "nes";
     unsigned pixel_format = RETRO_PIXEL_FORMAT_XRGB8888;
     std::string system_directory;
     std::string save_directory;
@@ -209,7 +210,10 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
     // widescreen monitor looks soft even with pixelated rendering. Nearest-neighbor upscaling here instead
     // means the encoder is actually working with — and the client actually receives — more real pixels,
     // while staying perfectly crisp (each source pixel becomes a clean block, never blurred/interpolated).
-    constexpr unsigned kUpscaleFactor = 2;
+    // Skipped for PS1: its CPU-bound 3D emulation is already the heaviest thing running in this container
+    // (shared with x264enc, itself CPU-only — no GPU passthrough on this host), so it doesn't get to also
+    // pay for 4x the encoder pixel count. The browser's CSS scaling still fills the screen, just softer.
+    const unsigned kUpscaleFactor = runtime.game_id == "ps1" ? 1 : 2;
     const auto scaled_width = canvas_width * kUpscaleFactor;
     const auto scaled_height = canvas_height * kUpscaleFactor;
     runtime.framebuffer_scaled.resize(static_cast<std::size_t>(scaled_width) * scaled_height * 4);
@@ -338,6 +342,7 @@ GameConfig game_config() {
 
 int main() {
     try {
+        runtime.game_id = env_or("GAME", "nes");
         const auto config = game_config();
         const unsigned requested_fps = static_cast<unsigned>(std::stoul(env_or("VIDEO_FPS", "60")));
         const unsigned run_for_seconds = static_cast<unsigned>(std::stoul(env_or("RUN_FOR_SECONDS", "0")));
