@@ -368,6 +368,45 @@ button:disabled { cursor: progress; opacity: .55; }
   .auth-gate { max-width: none; padding: 24px; }
   .auth-gate h2 { font-size: 22px; }
   .field, .auth-form .btn-primary { font-size: 16px; padding: 13px 14px; }
+
+  main:not(.in-room) { width: 100%; margin: 0; padding: 12px 12px 84px; }
+  .lobby { padding: 4px 0 16px; }
+  .lobby-head { flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
+  .lobby-head h2 { font-size: 18px; }
+
+  .stat-strip { gap: 6px; margin-bottom: 12px; }
+  .stat-card { padding: 10px 8px; border-radius: 14px; }
+  .stat-value { font-size: 18px; }
+  .stat-label { font-size: 9px; }
+
+  .room-grid { gap: 8px; }
+
+  .jam-search-input { font-size: 14px; padding: 10px 12px 10px 36px; }
+  .jam-hashtags-row { gap: 6px; }
+  .jam-hashtag-pill { padding: 5px 10px; font-size: 10px; }
+  .jam-featured-card { min-height: 140px; border-radius: 14px; }
+  .jam-featured-banner { border-radius: 14px; }
+  .jam-featured-content { padding: 12px 14px; }
+  .jam-featured-title { font-size: 16px; }
+
+  .netflix-card { min-width: 100px; border-radius: 12px; }
+  .netflix-card-cover { border-radius: 12px; }
+
+  .jam-consoles-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .jam-console-card { border-radius: 10px; padding: 8px 6px; min-height: 60px; }
+  .jam-console-title { font-size: 8px; letter-spacing: 0.02em; }
+  .jam-console-icon svg { width: 50px; height: 33px; }
+
+  .lobby-card { padding: 12px; border-radius: 14px; }
+  .upload-rom-btn { padding: 14px; font-size: 13px; }
+  .upload-rom-btn svg { width: 18px; height: 18px; }
+
+  .friend-row { gap: 8px; padding: 8px; border-radius: 10px; }
+  .friend-status { font-size: 10px; margin-left: 4px; }
+
+  .game-modal { width: calc(100% - 12px); border-radius: 20px; }
+  .upload-modal { width: calc(100% - 12px); border-radius: 20px; }
+  .settings-backdrop.game-modal-backdrop { padding: 0 6px; }
 }
 
 /* Lobby Rooms & Profile */
@@ -800,6 +839,80 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
   }
   .bottom-tab.active { color: var(--cyan); }
   .bottom-tab .roster-avatar { margin-bottom: 1px; }
+
+  /* Mobile lobby layout */
+  .lobby { padding: 4px 16px 16px; }
+  .lobby-head { margin-bottom: 16px; }
+  .lobby-head h2 { font-size: 20px; }
+  .lobby-sub { font-size: 13px; }
+
+  /* Mobile stat strip */
+  .stat-strip { grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+  .stat-card { padding: 12px 10px; }
+  .stat-value { font-size: 20px; }
+  .stat-label { font-size: 10px; }
+
+  /* Mobile room grid */
+  .room-grid { grid-template-columns: 1fr; gap: 10px; }
+  .room-card { padding: 14px; }
+
+  /* Mobile profile grid */
+  .profile-grid { grid-template-columns: 1fr; }
+
+  /* Mobile catalog */
+  .jam-header-bar { padding: 0 0 8px; }
+  .jam-search-input { font-size: 15px; padding: 12px 14px 12px 40px; }
+  .jam-hashtags-row { overflow-x: auto; padding-bottom: 4px; flex-wrap: nowrap; }
+  .jam-hashtag-pill { flex-shrink: 0; padding: 6px 12px; font-size: 11px; }
+  .jam-section { margin-bottom: 16px; }
+  .jam-featured-grid { grid-template-columns: 1fr; }
+  .jam-featured-card { min-height: 160px; }
+  .jam-featured-title { font-size: 18px; }
+  .jam-featured-desc { font-size: 12px; }
+
+  /* Mobile Netflix rows */
+  .netflix-row { margin-bottom: 16px; }
+  .netflix-row-title { font-size: 15px; margin-bottom: 10px; }
+  .netflix-row-scroll { gap: 10px; }
+  .netflix-card { min-width: 120px; }
+  .netflix-card-title { font-size: 12px; }
+  .netflix-card-sub { font-size: 10px; }
+
+  /* Mobile console grid */
+  .jam-consoles-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .jam-console-card { padding: 12px 8px; min-height: 70px; }
+  .jam-console-title { font-size: 9px; }
+
+  /* Mobile lobby cards */
+  .lobby-card { padding: 14px; }
+  .catalog-upload-card { max-width: none; }
+
+  /* Mobile form elements */
+  .form-row { flex-direction: column; gap: 8px; }
+  .form-row .btn-ghost { width: 100%; justify-content: center; }
+
+  /* Mobile featured empty */
+  .featured-empty-banner { padding: 32px 20px; }
+  .featured-empty-icon { font-size: 36px; }
+  .featured-empty-title { font-size: 17px; }
+  .featured-empty-desc { font-size: 13px; }
+
+  /* Mobile upload modal */
+  .upload-modal { width: calc(100% - 16px); max-height: 90vh; }
+  .upload-modal-hero { padding: 24px 20px; }
+  .upload-modal-body { padding: 16px; }
+  .upload-console-chip { padding: 8px 10px; }
+  .chip-formats { font-size: 11px; }
+
+  /* Mobile game modal */
+  .game-modal { width: calc(100% - 16px); max-height: 90vh; }
+  .game-modal-hero { padding: 24px 20px; }
+  .game-modal-title { font-size: 20px; }
+  .game-modal-body { padding: 16px; }
+
+  /* Mobile social */
+  .friend-row { padding: 10px; }
+  .friend-name { font-size: 12px; }
 
   .mobile-panel-fab {
     display: flex; position: absolute; top: calc(64px + env(safe-area-inset-top)); right: calc(14px + env(safe-area-inset-right)); z-index: 3;

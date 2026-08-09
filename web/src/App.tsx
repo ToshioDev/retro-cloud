@@ -1256,6 +1256,27 @@ export default function App() {
       </nav>
     )}
 
+    {inLobby && (
+      <nav className="bottom-tab-bar">
+        <button className={lobbyView === "catalog" ? "bottom-tab active" : "bottom-tab"} onClick={() => setLobbyView("catalog")}>
+          <IconGrid /><span>{t("catalogTab")}</span>
+        </button>
+        <button className={lobbyView === "rooms" ? "bottom-tab active" : "bottom-tab"} onClick={() => setLobbyView("rooms")}>
+          <IconRoomsNav /><span>{t("roomsTab")}</span>
+        </button>
+        <button className={lobbyView === "social" ? "bottom-tab active" : "bottom-tab"} onClick={() => setLobbyView("social")}>
+          <IconFriends /><span>{t("socialTab")}</span>
+        </button>
+        <button className="bottom-tab" onClick={() => setAccountPopoverOpen(true)}>
+          <span className="roster-avatar small" style={{ position: "relative" }}>
+            {(authUsername ?? "?").slice(0, 1).toUpperCase()}
+            {friends.incoming.length > 0 && <span className="fab-badge inline-badge" />}
+          </span>
+          <span>{t("account")}</span>
+        </button>
+      </nav>
+    )}
+
 
 
     {inLobby && accountPopoverOpen && (
