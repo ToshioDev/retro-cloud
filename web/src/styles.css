@@ -879,13 +879,27 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
 }
 
 /* ── Social Inbox ─────────────────────────────────── */
-.social-inbox-header { margin-bottom: 20px; }
-.social-inbox-header h2 { margin: 0 0 16px; }
-.social-inbox-tabs { display: flex; gap: 4px; background: var(--panel-raised); border-radius: 14px; padding: 4px; }
+.social-lobby { padding: 0 !important; max-width: none; }
+.social-shell {
+  display: flex; height: calc(100vh - 56px);
+  background: var(--panel-solid); border-radius: 20px; border: 1px solid var(--line);
+  overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.4);
+}
+.social-sidebar {
+  width: 380px; min-width: 320px; flex-shrink: 0;
+  display: flex; flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: var(--panel-solid);
+}
+.social-sidebar-head {
+  padding: 20px 20px 16px; border-bottom: 1px solid var(--line);
+}
+.social-sidebar-head h2 { margin: 0 0 14px; font-size: 20px; }
+.social-inbox-tabs { display: flex; gap: 4px; background: var(--panel-raised); border-radius: 12px; padding: 4px; }
 .social-tab {
-  display: flex; align-items: center; gap: 6px; padding: 10px 18px; border-radius: 10px;
-  font-size: 13px; font-weight: 700; color: var(--mist); background: none; border: none;
-  cursor: pointer; transition: all .15s ease; position: relative;
+  display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px;
+  font-size: 12px; font-weight: 700; color: var(--mist); background: none; border: none;
+  cursor: pointer; transition: all .15s ease; position: relative; white-space: nowrap;
 }
 .social-tab:hover { color: var(--text); }
 .social-tab.active { background: var(--panel-solid); color: var(--text); box-shadow: 0 2px 8px rgba(0,0,0,.2); }
@@ -894,20 +908,36 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
   min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
   background: var(--signal); color: #fff; font-size: 10px; font-weight: 800;
 }
+.social-sidebar-body {
+  flex: 1; overflow-y: auto; padding: 12px;
+  scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+}
+.social-main {
+  flex: 1; display: flex; flex-direction: column; min-width: 0;
+  background: var(--void);
+}
+.social-main-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: var(--mist); text-align: center; padding: 40px;
+}
+.social-main-empty-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+.social-main-empty-title { font-size: 18px; font-weight: 700; color: var(--text); margin: 0 0 6px; }
+.social-main-empty-sub { font-size: 14px; color: var(--mist); margin: 0; }
 
 /* Inbox list */
 .inbox-list { display: flex; flex-direction: column; }
-.inbox-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.inbox-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .inbox-empty { text-align: center; padding: 48px 20px; }
 .inbox-empty-icon { font-size: 40px; display: block; margin-bottom: 12px; }
 .inbox-empty-title { font-size: 16px; font-weight: 700; color: var(--text); margin: 0 0 4px; }
 .inbox-empty-sub { font-size: 13px; color: var(--mist); margin: 0; }
 .inbox-conversations { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .inbox-row {
-  display: flex; align-items: center; gap: 12px; padding: 14px 16px;
-  border-radius: 14px; cursor: pointer; transition: background .15s ease;
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+  border-radius: 12px; cursor: pointer; transition: background .15s ease;
 }
 .inbox-row:hover { background: var(--panel-raised); }
+.inbox-row.active { background: var(--signal-dim); }
 .inbox-row.unread { background: rgba(99, 102, 241, 0.08); }
 .inbox-row .roster-avatar { width: 44px; height: 44px; font-size: 16px; flex-shrink: 0; }
 .inbox-row-content { flex: 1; min-width: 0; }
@@ -953,20 +983,22 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
 .add-friend-inline .field { flex: 1; padding: 8px 12px; font-size: 13px; }
 
 /* DM Chat */
-.dm-view { display: flex; flex-direction: column; height: calc(100vh - 160px); }
+.dm-view { display: flex; flex-direction: column; height: 100%; }
 .dm-header {
-  display: flex; align-items: center; gap: 10px; padding: 12px 0;
-  border-bottom: 1px solid var(--line); margin-bottom: 8px;
+  display: flex; align-items: center; gap: 10px; padding: 16px 20px;
+  border-bottom: 1px solid var(--line); background: var(--panel-solid);
 }
 .dm-back {
-  display: flex; width: 36px; height: 36px; align-items: center; justify-content: center;
+  display: none; width: 36px; height: 36px; align-items: center; justify-content: center;
   border-radius: 10px; background: var(--panel-raised); color: var(--mist);
   border: none; cursor: pointer;
 }
 .dm-back:hover { color: var(--text); }
+.dm-header-info { display: flex; flex-direction: column; }
 .dm-peer-name { font-weight: 700; font-size: 15px; color: var(--text); }
+.dm-peer-status { font-size: 12px; color: var(--green); }
 .dm-messages {
-  flex: 1; overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 8px;
+  flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 8px;
   scrollbar-width: thin; scrollbar-color: var(--line) transparent;
 }
 .dm-loading { text-align: center; color: var(--mist); padding: 24px; font-size: 13px; }
@@ -1163,6 +1195,17 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
   .latency-pill { padding: 5px 10px; font-size: 10px; }
   .latency-popover { width: 200px; }
   .overflow-dropdown { right: -8px; min-width: 160px; }
+
+  /* Mobile social inbox: single panel */
+  .social-shell { flex-direction: column; height: auto; min-height: calc(100vh - 100px); border-radius: 16px; }
+  .social-sidebar { width: 100%; min-width: 0; border-right: none; border-bottom: 1px solid var(--line); }
+  .social-sidebar.has-dm { display: none; }
+  .social-main { display: none; }
+  .social-main.open { display: flex; position: fixed; inset: 0; z-index: 20; background: var(--void); }
+  .social-main.open .dm-back { display: flex; }
+  .social-main-empty { display: none; }
+  .social-inbox-tabs { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+  .social-tab { flex-shrink: 0; padding: 8px 12px; font-size: 11px; }
 
   .stage-fit { padding: 0; }
   .stage-fixed { padding: 0; }

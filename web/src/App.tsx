@@ -1901,192 +1901,208 @@ export default function App() {
     )}
 
     {inLobby && lobbyView === "social" && (
-      <section className="lobby">
-        {/* Social Header */}
-        <div className="social-inbox-header">
-          <h2>{t("socialTitle")}</h2>
-          <div className="social-inbox-tabs">
-            <button className={`social-tab ${socialTab === "inbox" ? "active" : ""}`} onClick={() => { setSocialTab("inbox"); setDmPeer(null); }}>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
-              {t("inbox")}
-              {unreadCount > 0 && <span className="social-tab-badge">{unreadCount}</span>}
-            </button>
-            <button className={`social-tab ${socialTab === "friends" ? "active" : ""}`} onClick={() => { setSocialTab("friends"); setDmPeer(null); }}>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-              {t("friends")}
-            </button>
-            <button className={`social-tab ${socialTab === "requests" ? "active" : ""}`} onClick={() => { setSocialTab("requests"); setDmPeer(null); }}>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="8.5" cy="7" r="4" /><line x1="20" y1="8" x2="20" y2="14" /><line x1="23" y1="11" x2="17" y2="11" /></svg>
-              {t("requests")}
-              {friends.incoming.length > 0 && <span className="social-tab-badge">{friends.incoming.length}</span>}
-            </button>
-          </div>
-        </div>
-
-        {/* DM Chat View */}
-        {dmPeer && (
-          <div className="dm-view">
-            <div className="dm-header">
-              <button className="dm-back" onClick={() => { setDmPeer(null); refreshInbox(); }}>
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-              </button>
-              <span className="roster-avatar small online">{dmPeer.slice(0, 1).toUpperCase()}</span>
-              <span className="dm-peer-name">{dmPeer}</span>
+      <section className="lobby social-lobby">
+        <div className="social-shell">
+          {/* ── Left Panel: Tabs + List ── */}
+          <div className={`social-sidebar ${dmPeer ? "has-dm" : ""}`}>
+            <div className="social-sidebar-head">
+              <h2>{t("socialTitle")}</h2>
+              <div className="social-inbox-tabs">
+                <button className={`social-tab ${socialTab === "inbox" ? "active" : ""}`} onClick={() => { setSocialTab("inbox"); setDmPeer(null); }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
+                  {t("inbox")}
+                  {unreadCount > 0 && <span className="social-tab-badge">{unreadCount}</span>}
+                </button>
+                <button className={`social-tab ${socialTab === "friends" ? "active" : ""}`} onClick={() => { setSocialTab("friends"); setDmPeer(null); }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                  {t("friends")}
+                </button>
+                <button className={`social-tab ${socialTab === "requests" ? "active" : ""}`} onClick={() => { setSocialTab("requests"); setDmPeer(null); }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="8.5" cy="7" r="4" /><line x1="20" y1="8" x2="20" y2="14" /><line x1="23" y1="11" x2="17" y2="11" /></svg>
+                  {t("requests")}
+                  {friends.incoming.length > 0 && <span className="social-tab-badge">{friends.incoming.length}</span>}
+                </button>
+              </div>
             </div>
-            <div className="dm-messages">
-              {dmLoading && <div className="dm-loading">{t("loading")}</div>}
-              {!dmLoading && dmMessages.length === 0 && (
-                <div className="dm-empty">
-                  <span className="dm-empty-icon">💬</span>
-                  <p>{t("startConversation")}</p>
+
+            <div className="social-sidebar-body">
+              {/* Inbox Tab */}
+              {socialTab === "inbox" && (
+                <div className="inbox-list">
+                  <div className="inbox-toolbar">
+                    <button className="btn-ghost" onClick={() => void refreshInbox()}><IconRefresh /></button>
+                  </div>
+                  {inbox.length === 0 ? (
+                    <div className="inbox-empty">
+                      <span className="inbox-empty-icon">📭</span>
+                      <p className="inbox-empty-title">{t("noMessages")}</p>
+                      <p className="inbox-empty-sub">{t("startFromFriends")}</p>
+                    </div>
+                  ) : (
+                    <ul className="inbox-conversations">
+                      {inbox.map((conv) => {
+                        const friendRoom = activeRooms.find((r) => r.owner === conv.peer && r.visibility !== "private");
+                        const isOnline = !!friendRoom;
+                        return (
+                          <li key={conv.peer} className={`inbox-row ${dmPeer === conv.peer ? "active" : ""} ${conv.unread > 0 ? "unread" : ""}`} onClick={() => openDM(conv.peer)}>
+                            <span className={`roster-avatar ${isOnline ? "online" : ""}`}>{conv.peer.slice(0, 1).toUpperCase()}</span>
+                            <div className="inbox-row-content">
+                              <div className="inbox-row-top">
+                                <span className="inbox-row-name">{conv.peer}</span>
+                                <span className="inbox-row-time">{formatTimeAgo(conv.lastTime)}</span>
+                              </div>
+                              <p className="inbox-row-preview">{conv.lastMessage}</p>
+                            </div>
+                            {conv.unread > 0 && <span className="inbox-unread-badge">{conv.unread}</span>}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </div>
               )}
-              {dmMessages.map((msg) => (
-                <div key={msg.id} className={`dm-bubble ${msg.sender === authUsername ? "mine" : "theirs"}`}>
-                  <p className="dm-text">{msg.body}</p>
-                  <span className="dm-time">{new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+
+              {/* Friends Tab */}
+              {socialTab === "friends" && (
+                <div className="social-section">
+                  <div className="inbox-toolbar">
+                    <div className="add-friend-inline">
+                      <input
+                        className="field add-friend-input"
+                        value={addFriendInput}
+                        onChange={(e) => setAddFriendInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") sendFriendRequest(); }}
+                        placeholder={t("addFriendPlaceholder")}
+                      />
+                      <button className="btn-primary btn-sm" onClick={sendFriendRequest} disabled={!addFriendInput.trim()}>{t("add")}</button>
+                    </div>
+                    <button className="btn-ghost" onClick={() => void refreshFriends()}><IconRefresh /></button>
+                  </div>
+                  {friendError && <p className="form-error">{friendError}</p>}
+                  {friends.friends.length === 0 ? (
+                    <div className="inbox-empty">
+                      <span className="inbox-empty-icon">👥</span>
+                      <p className="inbox-empty-title">{t("noFriendsYet")}</p>
+                    </div>
+                  ) : (
+                    <ul className="friend-list-full">
+                      {friends.friends.map((name) => {
+                        const friendRoom = activeRooms.find((r) => r.owner === name && r.visibility !== "private");
+                        const isOnline = !!friendRoom;
+                        return (
+                          <li key={name} className="friend-list-row">
+                            <span className={`roster-avatar ${isOnline ? "online" : ""}`}>{name.slice(0, 1).toUpperCase()}</span>
+                            <div className="friend-list-info">
+                              <span className="friend-list-name">{name}</span>
+                              {isOnline ? (
+                                <span className="friend-list-status online">{t("playing")}</span>
+                              ) : (
+                                <span className="friend-list-status">{t("offline")}</span>
+                              )}
+                            </div>
+                            <div className="friend-list-actions">
+                              <button className="icon-button-sm" onClick={() => openDM(name)} title={t("message")}>
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                              </button>
+                              {isOnline && friendRoom && (
+                                <button className="btn-primary btn-xs" onClick={() => connect(friendRoom.room, friendRoom.owner, friendRoom.game)}>
+                                  {t("join")}
+                                </button>
+                              )}
+                              <button className="icon-button-sm danger" onClick={() => removeFriend(name)} title={t("remove")}>
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                              </button>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </div>
-              ))}
-              <div ref={dmEndRef} />
-            </div>
-            <div className="dm-input-bar">
-              <input
-                className="dm-input"
-                value={dmInput}
-                onChange={(e) => setDmInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendDM(); } }}
-                placeholder={t("typeMessage")}
-              />
-              <button className="dm-send" onClick={sendDM} disabled={!dmInput.trim()}>
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
-              </button>
-            </div>
-          </div>
-        )}
+              )}
 
-        {/* Inbox Tab */}
-        {!dmPeer && socialTab === "inbox" && (
-          <div className="inbox-list">
-            <div className="inbox-toolbar">
-              <button className="btn-ghost" onClick={() => void refreshInbox()}><IconRefresh /></button>
-            </div>
-            {inbox.length === 0 ? (
-              <div className="inbox-empty">
-                <span className="inbox-empty-icon">📭</span>
-                <p className="inbox-empty-title">{t("noMessages")}</p>
-                <p className="inbox-empty-sub">{t("startFromFriends")}</p>
-              </div>
-            ) : (
-              <ul className="inbox-conversations">
-                {inbox.map((conv) => {
-                  const friendRoom = activeRooms.find((r) => r.owner === conv.peer && r.visibility !== "private");
-                  const isOnline = !!friendRoom;
-                  return (
-                    <li key={conv.peer} className={`inbox-row ${conv.unread > 0 ? "unread" : ""}`} onClick={() => openDM(conv.peer)}>
-                      <span className={`roster-avatar ${isOnline ? "online" : ""}`}>{conv.peer.slice(0, 1).toUpperCase()}</span>
-                      <div className="inbox-row-content">
-                        <div className="inbox-row-top">
-                          <span className="inbox-row-name">{conv.peer}</span>
-                          <span className="inbox-row-time">{formatTimeAgo(conv.lastTime)}</span>
-                        </div>
-                        <p className="inbox-row-preview">{conv.lastMessage}</p>
-                      </div>
-                      {conv.unread > 0 && <span className="inbox-unread-badge">{conv.unread}</span>}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {/* Friends Tab */}
-        {!dmPeer && socialTab === "friends" && (
-          <div className="social-section">
-            <div className="inbox-toolbar">
-              <div className="add-friend-inline">
-                <input
-                  className="field add-friend-input"
-                  value={addFriendInput}
-                  onChange={(e) => setAddFriendInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") sendFriendRequest(); }}
-                  placeholder={t("addFriendPlaceholder")}
-                />
-                <button className="btn-primary btn-sm" onClick={sendFriendRequest} disabled={!addFriendInput.trim()}>{t("add")}</button>
-              </div>
-              <button className="btn-ghost" onClick={() => void refreshFriends()}><IconRefresh /></button>
-            </div>
-            {friendError && <p className="form-error">{friendError}</p>}
-            {friends.friends.length === 0 ? (
-              <div className="inbox-empty">
-                <span className="inbox-empty-icon">👥</span>
-                <p className="inbox-empty-title">{t("noFriendsYet")}</p>
-              </div>
-            ) : (
-              <ul className="friend-list-full">
-                {friends.friends.map((name) => {
-                  const friendRoom = activeRooms.find((r) => r.owner === name && r.visibility !== "private");
-                  const isOnline = !!friendRoom;
-                  const conv = inbox.find((c) => c.peer === name);
-                  return (
-                    <li key={name} className="friend-list-row">
-                      <span className={`roster-avatar ${isOnline ? "online" : ""}`}>{name.slice(0, 1).toUpperCase()}</span>
-                      <div className="friend-list-info">
-                        <span className="friend-list-name">{name}</span>
-                        {isOnline ? (
-                          <span className="friend-list-status online">{t("playing")}</span>
-                        ) : (
-                          <span className="friend-list-status">{t("offline")}</span>
-                        )}
-                      </div>
-                      <div className="friend-list-actions">
-                        <button className="icon-button-sm" onClick={() => openDM(name)} title={t("message")}>
-                          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                        </button>
-                        {isOnline && friendRoom && (
-                          <button className="btn-primary btn-xs" onClick={() => connect(friendRoom.room, friendRoom.owner, friendRoom.game)}>
-                            {t("join")}
-                          </button>
-                        )}
-                        <button className="icon-button-sm danger" onClick={() => removeFriend(name)} title={t("remove")}>
-                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {/* Requests Tab */}
-        {!dmPeer && socialTab === "requests" && (
-          <div className="social-section">
-            {friends.incoming.length === 0 ? (
-              <div className="inbox-empty">
-                <span className="inbox-empty-icon">✨</span>
-                <p className="inbox-empty-title">{t("noPendingRequests")}</p>
-              </div>
-            ) : (
-              <ul className="friend-list-full">
-                {friends.incoming.map((name) => (
-                  <li key={name} className="friend-list-row">
-                    <span className="roster-avatar">{name.slice(0, 1).toUpperCase()}</span>
-                    <div className="friend-list-info">
-                      <span className="friend-list-name">{name}</span>
-                      <span className="friend-list-status">{t("wantsToBeFriends")}</span>
+              {/* Requests Tab */}
+              {socialTab === "requests" && (
+                <div className="social-section">
+                  {friends.incoming.length === 0 ? (
+                    <div className="inbox-empty">
+                      <span className="inbox-empty-icon">✨</span>
+                      <p className="inbox-empty-title">{t("noPendingRequests")}</p>
                     </div>
-                    <div className="friend-list-actions">
-                      <button className="btn-primary btn-xs" onClick={() => respondFriendRequest(name, true)}>{t("accept")}</button>
-                      <button className="btn-ghost btn-xs" onClick={() => respondFriendRequest(name, false)}>{t("decline")}</button>
+                  ) : (
+                    <ul className="friend-list-full">
+                      {friends.incoming.map((name) => (
+                        <li key={name} className="friend-list-row">
+                          <span className="roster-avatar">{name.slice(0, 1).toUpperCase()}</span>
+                          <div className="friend-list-info">
+                            <span className="friend-list-name">{name}</span>
+                            <span className="friend-list-status">{t("wantsToBeFriends")}</span>
+                          </div>
+                          <div className="friend-list-actions">
+                            <button className="btn-primary btn-xs" onClick={() => respondFriendRequest(name, true)}>{t("accept")}</button>
+                            <button className="btn-ghost btn-xs" onClick={() => respondFriendRequest(name, false)}>{t("decline")}</button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Right Panel: DM Chat ── */}
+          <div className={`social-main ${dmPeer ? "open" : ""}`}>
+            {dmPeer ? (
+              <div className="dm-view">
+                <div className="dm-header">
+                  <button className="dm-back" onClick={() => { setDmPeer(null); refreshInbox(); }}>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+                  </button>
+                  <span className="roster-avatar small online">{dmPeer.slice(0, 1).toUpperCase()}</span>
+                  <div className="dm-header-info">
+                    <span className="dm-peer-name">{dmPeer}</span>
+                    {activeRooms.find((r) => r.owner === dmPeer) && <span className="dm-peer-status">{t("playing")}</span>}
+                  </div>
+                </div>
+                <div className="dm-messages">
+                  {dmLoading && <div className="dm-loading">{t("loading")}</div>}
+                  {!dmLoading && dmMessages.length === 0 && (
+                    <div className="dm-empty">
+                      <span className="dm-empty-icon">💬</span>
+                      <p>{t("startConversation")}</p>
                     </div>
-                  </li>
-                ))}
-              </ul>
+                  )}
+                  {dmMessages.map((msg) => (
+                    <div key={msg.id} className={`dm-bubble ${msg.sender === authUsername ? "mine" : "theirs"}`}>
+                      <p className="dm-text">{msg.body}</p>
+                      <span className="dm-time">{new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                  ))}
+                  <div ref={dmEndRef} />
+                </div>
+                <div className="dm-input-bar">
+                  <input
+                    className="dm-input"
+                    value={dmInput}
+                    onChange={(e) => setDmInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendDM(); } }}
+                    placeholder={t("typeMessage")}
+                  />
+                  <button className="dm-send" onClick={sendDM} disabled={!dmInput.trim()}>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="social-main-empty">
+                <span className="social-main-empty-icon">💬</span>
+                <p className="social-main-empty-title">{t("selectConversation")}</p>
+                <p className="social-main-empty-sub">{t("selectConversationHint")}</p>
+              </div>
             )}
           </div>
-        )}
+        </div>
       </section>
     )}
 
