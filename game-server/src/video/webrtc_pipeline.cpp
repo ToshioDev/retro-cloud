@@ -177,6 +177,9 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     }
     g_object_set(peer->webrtcbin, "bundle-policy", 3 /* GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE */, nullptr);
     g_object_set(peer->webrtcbin, "stun-server", "stun://stun.l.google.com:19302", nullptr);
+    // Drop old buffers instead of queueing them: a laggy peer should skip ahead rather than build up latency.
+    g_object_set(peer->video_queue, "leaky", 2 /* downstream */, "max-size-buffers", 3, "max-size-time", (guint64)200000000 /* 200ms */, "max-size-bytes", 0, nullptr);
+    g_object_set(peer->audio_queue, "leaky", 2 /* downstream */, "max-size-buffers", 30, "max-size-time", (guint64)200000000 /* 200ms */, "max-size-bytes", 0, nullptr);
     gst_bin_add_many(GST_BIN(pipeline_), peer->webrtcbin, peer->video_queue, peer->audio_queue, nullptr);
     if (!gst_element_link(video_tee_, peer->video_queue) || !gst_element_link(peer->video_queue, peer->webrtcbin) ||
         !gst_element_link(audio_tee_, peer->audio_queue) || !gst_element_link(peer->audio_queue, peer->webrtcbin)) {
@@ -192,7 +195,14 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     g_signal_connect(peer->webrtcbin, "on-ice-candidate", G_CALLBACK(on_ice_candidate), peer_ptr);
 
     GstWebRTCDataChannel *channel = nullptr;
-    g_signal_emit_by_name(peer->webrtcbin, "create-data-channel", "input", nullptr, &channel);
+    // Unordered + unreliable: input is latency-sensitive per-frame state, not worth retransmitting or
+    // head-of-line-blocking behind a dropped packet the way a default ordered/reliable channel would.
+    GstStructure *channel_options = gst_structure_new("data-channel-options",
+        "ordered", G_TYPE_BOOLEAN, FALSE,
+        "max-retransmits", G_TYPE_INT, 0,
+        nullptr);
+    g_signal_emit_by_name(peer->webrtcbin, "create-data-channel", "input", channel_options, &channel);
+    gst_structure_free(channel_options);
     peer->data_channel = reinterpret_cast<GObject *>(channel);
     if (channel) {
         g_signal_connect(channel, "on-message-string", G_CALLBACK(on_data_channel_message), peer_ptr);

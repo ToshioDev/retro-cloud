@@ -295,6 +295,9 @@ video { image-rendering: pixelated; position: relative; z-index: 1; display: blo
 .roster-you { color: var(--mist); font-weight: 400; }
 .host-badge { flex-shrink: 0; display: flex; color: #f5c344; }
 .roster-tag { flex-shrink: 0; font-family: var(--font-mono); font-size: 11px; padding: 3px 7px; border-radius: 6px; background: var(--panel-raised); color: var(--mist); font-weight: 700; }
+.roster-make-host { flex-shrink: 0; padding: 4px 8px; font-size: 10px; font-weight: 600; border-radius: 999px; background: transparent; border: 1px solid var(--line); color: var(--mist); opacity: 0; transition: opacity .15s ease; }
+.roster-row:hover .roster-make-host { opacity: 1; }
+.roster-make-host:hover { border-color: var(--signal); color: var(--signal); }
 .chat-log { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; margin: 4px 0 10px; }
 .chat-empty { color: var(--mist); font-size: 12px; margin: 0; }
 .chat-message { font-size: 13px; line-height: 1.4; }

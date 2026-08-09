@@ -71,6 +71,7 @@ const dict = {
 
   players: { en: "Players", es: "Jugadores" },
   host: { en: "Room host", es: "Dueño de la sala" },
+  makeHost: { en: "Make host", es: "Hacer host" },
   closeRoom: { en: "Close room", es: "Cerrar sala" },
   closing: { en: "Closing…", es: "Cerrando…" },
   visibility: { en: "Visibility", es: "Visibilidad" },
@@ -80,6 +81,7 @@ const dict = {
   privateHint: { en: "Hidden from the room list — only joinable with the room code.", es: "Oculta de la lista — solo se puede entrar con el código." },
   deleteRom: { en: "Delete ROM", es: "Eliminar ROM" },
   connectionStatus: { en: "Connection", es: "Conexión" },
+  reconnecting: { en: "Reconnecting…", es: "Reconectando…" },
   latency: { en: "Latency", es: "Latencia" },
   shared: { en: "shared", es: "compartida" },
   you: { en: "you", es: "tú" },

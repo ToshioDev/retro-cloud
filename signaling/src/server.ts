@@ -8,7 +8,7 @@ import Docker from "dockerode";
 import * as auth from "./auth.js";
 
 type SignalMessage = {
-  type: "join" | "offer" | "answer" | "candidate" | "leave" | "chat" | "closed";
+  type: "join" | "offer" | "answer" | "candidate" | "leave" | "chat" | "closed" | "transfer_host" | "owner_changed";
   room?: string;
   role?: string;
   username?: string;
@@ -18,7 +18,7 @@ type SignalMessage = {
 };
 
 type Peer = { id: string; room?: string; role?: string; playerNumber?: number; username?: string; socket: WebSocket; alive: boolean };
-type RoomState = { nextPlayerNumber: number };
+type RoomState = { usedNumbers: Set<number> };
 
 const port = Number(process.env.PORT ?? 8080);
 const peers = new Map<string, Peer>();
@@ -400,6 +400,18 @@ function broadcastAll(room: string, message: SignalMessage) {
   }
 }
 
+function allocatePlayerNumber(room: string, state: RoomState, username: string | undefined): number {
+  const owner = roomOwners.get(room);
+  if (owner && username === owner && !state.usedNumbers.has(1)) {
+    state.usedNumbers.add(1);
+    return 1;
+  }
+  let n = owner ? 2 : 1; // reserve slot 1 for the room owner whenever the room has a known owner
+  while (state.usedNumbers.has(n)) n++;
+  state.usedNumbers.add(n);
+  return n;
+}
+
 webSockets.on("connection", (socket) => {
   const peer: Peer = { id: randomUUID(), socket, alive: true };
   peers.set(peer.id, peer);
@@ -414,18 +426,17 @@ webSockets.on("connection", (socket) => {
       send(peer, { type: "leave", payload: { reason: "invalid_json" } });
       return;
     }
-    if (!["join", "offer", "answer", "candidate", "leave", "chat"].includes(message.type)) return;
+    if (!["join", "offer", "answer", "candidate", "leave", "chat", "transfer_host"].includes(message.type)) return;
     if (message.type === "join") {
       if (peer.room) return; // ignore duplicate join on an already-registered connection
       const room = typeof message.room === "string" && message.room.length <= 128 ? message.room : "default";
       peer.room = room;
       peer.role = message.role === "host" ? "host" : "player";
       peer.username = typeof message.username === "string" ? message.username.slice(0, 32) : undefined;
-      if (!rooms.has(room)) rooms.set(room, { nextPlayerNumber: 1 });
+      if (!rooms.has(room)) rooms.set(room, { usedNumbers: new Set() });
       const state = rooms.get(room)!;
       if (peer.role === "player") {
-        peer.playerNumber = state.nextPlayerNumber;
-        state.nextPlayerNumber += 1;
+        peer.playerNumber = allocatePlayerNumber(room, state, peer.username);
       }
       const joinPayload = { peerId: peer.id, playerNumber: peer.playerNumber, role: peer.role, username: peer.username };
       send(peer, { type: "join", room, payload: joinPayload });
@@ -455,6 +466,17 @@ webSockets.on("connection", (socket) => {
       });
       return;
     }
+    if (message.type === "transfer_host") {
+      const currentOwner = roomOwners.get(peer.room);
+      if (!currentOwner || peer.username !== currentOwner) return;
+      const body = message.payload as { targetPeerId?: string } | undefined;
+      const target = typeof body?.targetPeerId === "string" ? peers.get(body.targetPeerId) : undefined;
+      if (!target || target.room !== peer.room || target.role !== "player" || !target.username) return;
+      roomOwners.set(peer.room, target.username);
+      console.log(`[SIGNALING] ${peer.room} host transferred: ${currentOwner} -> ${target.username}`);
+      broadcastAll(peer.room, { type: "owner_changed", room: peer.room, payload: { owner: target.username } });
+      return;
+    }
     // offer/answer/candidate are point-to-point: deliver only to the addressed peer.
     if (message.type === "offer" || message.type === "answer" || message.type === "candidate") {
       const target = typeof message.to === "string" ? peers.get(message.to) : undefined;
@@ -468,6 +490,7 @@ webSockets.on("connection", (socket) => {
     if (room) broadcast(room, peer.id, { type: "leave", room, payload: { peerId: peer.id } });
     peers.delete(peer.id);
     console.log(`[SIGNALING] disconnected ${peer.id}`);
+    if (room && peer.playerNumber !== undefined) rooms.get(room)?.usedNumbers.delete(peer.playerNumber);
     if (room && peer.role === "player" && managedRooms.has(room)) {
       const remainingPlayers = [...peers.values()].some((other) => other.room === room && other.role === "player");
       if (!remainingPlayers) void teardownRoom(room);

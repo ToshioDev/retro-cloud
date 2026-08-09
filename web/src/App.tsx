@@ -175,8 +175,16 @@ export default function App() {
   const myPeerIdRef = useRef<string | null>(null);
   const hostPeerIdRef = useRef<string | null>(null);
   const playerNumberRef = useRef<number>(1);
+  const shouldReconnectRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimeoutRef = useRef<number | null>(null);
+  const lastRoomRef = useRef<string>("");
+  const lastOwnerRef = useRef<string | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
 
   useEffect(() => () => {
+    shouldReconnectRef.current = false;
+    if (reconnectTimeoutRef.current) window.clearTimeout(reconnectTimeoutRef.current);
     inputRef.current?.close();
     peerRef.current?.close();
     socketRef.current?.close();
@@ -251,9 +259,14 @@ export default function App() {
   async function connect(targetRoom?: string, owner?: string | null) {
     if (socketRef.current) return;
     const joinRoom = (targetRoom ?? room).trim() || "local";
+    const joinOwner = owner ?? lastOwnerRef.current ?? activeRooms.find((r) => r.room === joinRoom)?.owner ?? null;
+    lastRoomRef.current = joinRoom;
+    lastOwnerRef.current = joinOwner;
+    shouldReconnectRef.current = true;
+    if (reconnectTimeoutRef.current) { window.clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
     setRoom(joinRoom);
     setRoomTouched(true);
-    setRoomOwner(owner ?? activeRooms.find((r) => r.room === joinRoom)?.owner ?? null);
+    setRoomOwner(joinOwner);
     setStatus("Connecting");
     myPeerIdRef.current = null;
     hostPeerIdRef.current = null;
@@ -282,6 +295,8 @@ export default function App() {
       const state = peer.connectionState;
       if (state === "connected") {
         setStatus("WebRTC connected");
+        setReconnecting(false);
+        reconnectAttemptsRef.current = 0;
         if (statsIntervalRef.current) window.clearInterval(statsIntervalRef.current);
         statsIntervalRef.current = window.setInterval(async () => {
           const stats = await peer.getStats();
@@ -332,7 +347,12 @@ export default function App() {
         setChatMessages((prev) => [...prev.slice(-99), { username, playerNumber: pn, text, timestamp }]);
         return;
       }
+      if (message.type === "owner_changed" && message.payload) {
+        setRoomOwner(message.payload.owner ?? null);
+        return;
+      }
       if (message.type === "closed") {
+        shouldReconnectRef.current = false;
         socket.close();
         return;
       }
@@ -354,9 +374,23 @@ export default function App() {
     };
     socket.onerror = () => setStatus("Signaling error");
     socket.onclose = () => {
-      setStatus("Disconnected"); socketRef.current = null; peerRef.current?.close(); peerRef.current = null;
+      socketRef.current = null; peerRef.current?.close(); peerRef.current = null;
       if (statsIntervalRef.current) { window.clearInterval(statsIntervalRef.current); statsIntervalRef.current = null; }
       setRttMs(null);
+      const maxAttempts = 6;
+      if (shouldReconnectRef.current && reconnectAttemptsRef.current < maxAttempts) {
+        reconnectAttemptsRef.current += 1;
+        setReconnecting(true);
+        setStatus("Connecting");
+        const delay = Math.min(1000 * 2 ** (reconnectAttemptsRef.current - 1), 15000);
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          void connect(lastRoomRef.current, lastOwnerRef.current);
+        }, delay);
+      } else {
+        setReconnecting(false);
+        shouldReconnectRef.current = false;
+        setStatus("Disconnected");
+      }
     };
   }
 
@@ -416,6 +450,7 @@ export default function App() {
 
   async function closeRoom() {
     if (!authToken || closingRoom) return;
+    shouldReconnectRef.current = false;
     setClosingRoom(true);
     try {
       const response = await fetch(`${roomsUrl}/${encodeURIComponent(room)}`, {
@@ -432,6 +467,11 @@ export default function App() {
       socketRef.current?.close();
       setClosingRoom(false);
     }
+  }
+
+  function transferHost(targetPeerId: string) {
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+    socketRef.current.send(JSON.stringify({ type: "transfer_host", room, payload: { targetPeerId } }));
   }
 
   useEffect(() => {
@@ -731,7 +771,7 @@ export default function App() {
                 onClick={() => setLatencyPopoverOpen((v) => !v)}
               >
                 <span className="latency-bars"><span /><span /><span /></span>
-                {status.includes("Connected") && rttMs !== null ? `${rttMs}ms` : ""}
+                {reconnecting ? t("reconnecting") : status.includes("Connected") && rttMs !== null ? `${rttMs}ms` : ""}
               </button>
               {latencyPopoverOpen && (
                 <>
@@ -793,13 +833,19 @@ export default function App() {
               <li className="roster-row">
                 <span className="roster-avatar">{(authUsername ?? "?").slice(0, 1).toUpperCase()}</span>
                 <span className="roster-name">{authUsername} <span className="roster-you">({t("you")})</span></span>
-                {(playerNumber ?? 1) === 1 ? <span className="host-badge" title={t("host")}><IconCrown /></span> : <span className="roster-tag">P{playerNumber ?? 1}</span>}
+                <span className="roster-tag">P{playerNumber ?? 1}</span>
+                {authUsername === roomOwner && <span className="host-badge" title={t("host")}><IconCrown /></span>}
               </li>
               {roster.map((entry) => (
                 <li key={entry.peerId} className="roster-row">
                   <span className="roster-avatar">{entry.username.slice(0, 1).toUpperCase()}</span>
                   <span className="roster-name">{entry.username}</span>
-                  {entry.playerNumber === 1 ? <span className="host-badge" title={t("host")}><IconCrown /></span> : <span className="roster-tag">P{entry.playerNumber}</span>}
+                  <span className="roster-tag">P{entry.playerNumber}</span>
+                  {entry.username === roomOwner ? (
+                    <span className="host-badge" title={t("host")}><IconCrown /></span>
+                  ) : authUsername === roomOwner ? (
+                    <button className="roster-make-host" onClick={() => transferHost(entry.peerId)} title={t("makeHost")}>{t("makeHost")}</button>
+                  ) : null}
                 </li>
               ))}
             </ul>
