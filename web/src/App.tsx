@@ -433,6 +433,18 @@ export default function App() {
   const [crtEffect, setCrtEffect] = useState<boolean>(() => localStorage.getItem("rc_crt") === "1");
   const [soundFxEnabled, setSoundFxEnabledState] = useState<boolean>(isSoundEnabled);
   const [roomCopied, setRoomCopied] = useState(false);
+  const [pinnedRoms, setPinnedRoms] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("rc_pinned_roms") ?? "[]"); } catch { return []; }
+  });
+  const togglePinRom = (file: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    playClickSound();
+    setPinnedRoms((prev) => {
+      const next = prev.includes(file) ? prev.filter((f) => f !== file) : [...prev, file];
+      try { localStorage.setItem("rc_pinned_roms", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
   useEffect(() => { localStorage.setItem("rc_crt", crtEffect ? "1" : "0"); }, [crtEffect]);
   const [scale, setScale] = useState<string>("fit");
   const [touchLayout, setTouchLayout] = useState<"standard" | "swapped">(() => (localStorage.getItem("rc_touch_layout") === "swapped" ? "swapped" : "standard"));
@@ -1369,7 +1381,7 @@ export default function App() {
 
     {inLobby && lobbyView === "catalog" && (
       <section className="lobby">
-        {/* Jam.gg Header Toolbar */}
+        {/* Header Toolbar (Search + Hashtags) */}
         <div className="jam-header-bar">
           <div className="jam-search-box">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
@@ -1392,15 +1404,9 @@ export default function App() {
               </button>
             ))}
           </div>
-          <div className="jam-header-right">
-            <div className="jam-toggle-wrap">
-              <span>Currently Playing:</span>
-              <div className="jam-toggle active"><div className="jam-toggle-thumb" /></div>
-            </div>
-          </div>
         </div>
 
-        {/* Featured Showcase Games */}
+        {/* Featured Banner Showcase */}
         <div className="jam-section">
           <div className="jam-featured-grid">
             {FEATURED_GAMES.map((game) => (
@@ -1434,11 +1440,44 @@ export default function App() {
           </div>
         </div>
 
-        {/* Jam.gg "Bring Your Own Games 🕹️" Section */}
-        <div className="jam-section">
-          <div className="jam-section-title">
-            <span>Bring Your Own Games 🕹️</span>
+        {/* Netflix Row 1: Mis Pines y Destacados 📌 */}
+        {pinnedRoms.length > 0 && (
+          <div className="netflix-row">
+            <h3 className="netflix-row-title">Mis Pines / Destacados 📌</h3>
+            <div className="netflix-row-scroll">
+              {roms.filter(r => pinnedRoms.includes(r.file)).map((rom) => {
+                const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
+                return (
+                  <div
+                    key={rom.file}
+                    className="netflix-card"
+                    onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
+                  >
+                    <div className={`netflix-card-cover console-${rom.game}`} />
+                    <button
+                      className="pin-btn pinned"
+                      title="Desfijar de Mis Pines"
+                      onClick={(e) => togglePinRom(rom.file, e)}
+                    >
+                      📌
+                    </button>
+                    {roomsForGame.length > 0 && (
+                      <span className="poster-live-badge"><span className="live-pulse" /> {roomsForGame.length}</span>
+                    )}
+                    <div className="netflix-card-overlay">
+                      <h4 className="netflix-card-title">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</h4>
+                      <p className="netflix-card-sub">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
+        )}
+
+        {/* Netflix Row 2: Consolas y Emuladores 🕹️ */}
+        <div className="netflix-row">
+          <h3 className="netflix-row-title">Categorías por Consola 🕹️</h3>
           <div className="jam-consoles-grid">
             {JAM_CONSOLES.map((c) => {
               const ConsoleIcon = c.icon;
@@ -1463,11 +1502,117 @@ export default function App() {
           </div>
         </div>
 
-        {/* Jam.gg "Recently Played ⏰" Section */}
-        <div className="jam-section">
-          <div className="jam-section-title">
-            <span>Recently Played ⏰</span>
+        {/* Netflix Row 3: Super Nintendo (SNES) */}
+        {roms.some(r => r.game === "snes") && (
+          <div className="netflix-row">
+            <h3 className="netflix-row-title">Juegos de Super Nintendo (SNES) 💜</h3>
+            <div className="netflix-row-scroll">
+              {roms.filter(r => r.game === "snes").map((rom) => {
+                const isPinned = pinnedRoms.includes(rom.file);
+                const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
+                return (
+                  <div
+                    key={rom.file}
+                    className="netflix-card"
+                    onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
+                  >
+                    <div className="netflix-card-cover console-snes" />
+                    <button
+                      className={`pin-btn${isPinned ? " pinned" : ""}`}
+                      title={isPinned ? "Desfijar de Mis Pines" : "Fijar a Mis Pines"}
+                      onClick={(e) => togglePinRom(rom.file, e)}
+                    >
+                      📌
+                    </button>
+                    {roomsForGame.length > 0 && (
+                      <span className="poster-live-badge"><span className="live-pulse" /> {roomsForGame.length}</span>
+                    )}
+                    <div className="netflix-card-overlay">
+                      <h4 className="netflix-card-title">{rom.file.replace(/\.(nes|sfc|smc)$/i, "")}</h4>
+                      <p className="netflix-card-sub">SNES · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
+        )}
+
+        {/* Netflix Row 4: PlayStation 1 (PS1) */}
+        {roms.some(r => r.game === "ps1") && (
+          <div className="netflix-row">
+            <h3 className="netflix-row-title">Juegos de PlayStation 1 (PS1) 🟦</h3>
+            <div className="netflix-row-scroll">
+              {roms.filter(r => r.game === "ps1").map((rom) => {
+                const isPinned = pinnedRoms.includes(rom.file);
+                const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
+                return (
+                  <div
+                    key={rom.file}
+                    className="netflix-card"
+                    onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
+                  >
+                    <div className="netflix-card-cover console-ps1" />
+                    <button
+                      className={`pin-btn${isPinned ? " pinned" : ""}`}
+                      title={isPinned ? "Desfijar de Mis Pines" : "Fijar a Mis Pines"}
+                      onClick={(e) => togglePinRom(rom.file, e)}
+                    >
+                      📌
+                    </button>
+                    {roomsForGame.length > 0 && (
+                      <span className="poster-live-badge"><span className="live-pulse" /> {roomsForGame.length}</span>
+                    )}
+                    <div className="netflix-card-overlay">
+                      <h4 className="netflix-card-title">{rom.file.replace(/\.(bin|iso|img|pbp|chd)$/i, "")}</h4>
+                      <p className="netflix-card-sub">PS1 · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Netflix Row 5: NES 8-Bit */}
+        {roms.some(r => r.game === "nes") && (
+          <div className="netflix-row">
+            <h3 className="netflix-row-title">Juegos de NES 8-Bit (NES) 🟥</h3>
+            <div className="netflix-row-scroll">
+              {roms.filter(r => r.game === "nes").map((rom) => {
+                const isPinned = pinnedRoms.includes(rom.file);
+                const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
+                return (
+                  <div
+                    key={rom.file}
+                    className="netflix-card"
+                    onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
+                  >
+                    <div className="netflix-card-cover console-nes" />
+                    <button
+                      className={`pin-btn${isPinned ? " pinned" : ""}`}
+                      title={isPinned ? "Desfijar de Mis Pines" : "Fijar a Mis Pines"}
+                      onClick={(e) => togglePinRom(rom.file, e)}
+                    >
+                      📌
+                    </button>
+                    {roomsForGame.length > 0 && (
+                      <span className="poster-live-badge"><span className="live-pulse" /> {roomsForGame.length}</span>
+                    )}
+                    <div className="netflix-card-overlay">
+                      <h4 className="netflix-card-title">{rom.file.replace(/\.nes$/i, "")}</h4>
+                      <p className="netflix-card-sub">NES · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Netflix Row 6: Toda Tu Biblioteca de ROMs */}
+        <div className="netflix-row">
+          <h3 className="netflix-row-title">Tus ROMs Cargadas 🎮</h3>
           {roms.length === 0 ? (
             <div className="empty-state">
               <div className="empty-glyph">▢</div>
@@ -1483,19 +1628,30 @@ export default function App() {
               return <div className="empty-state"><div className="empty-glyph">▢</div><p>{t("noResults")}</p></div>;
             }
             return (
-              <div className="jam-recently-grid">
+              <div className="netflix-row-scroll">
                 {visible.map((rom) => {
+                  const isPinned = pinnedRoms.includes(rom.file);
                   const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
                   return (
                     <div
                       key={rom.file}
                       role="button"
                       tabIndex={0}
-                      className="jam-mini-card"
+                      className="netflix-card"
                       onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
                     >
-                      <div className={`jam-mini-cover console-${rom.game}`} />
-                      <div className="jam-mini-overlay">
+                      <div className={`netflix-card-cover console-${rom.game}`} />
+                      <button
+                        className={`pin-btn${isPinned ? " pinned" : ""}`}
+                        title={isPinned ? "Desfijar de Mis Pines" : "Fijar a Mis Pines"}
+                        onClick={(e) => togglePinRom(rom.file, e)}
+                      >
+                        📌
+                      </button>
+                      {roomsForGame.length > 0 && (
+                        <span className="poster-live-badge"><span className="live-pulse" /> {roomsForGame.length}</span>
+                      )}
+                      <div className="netflix-card-overlay">
                         {rom.owner === authUsername && (
                           <button
                             className="game-card-delete"
@@ -1505,8 +1661,8 @@ export default function App() {
                             <IconClose />
                           </button>
                         )}
-                        <h4 className="jam-mini-title">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</h4>
-                        <p className="jam-mini-sub">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
+                        <h4 className="netflix-card-title">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</h4>
+                        <p className="netflix-card-sub">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
                       </div>
                     </div>
                   );

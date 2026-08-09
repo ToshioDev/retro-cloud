@@ -267,6 +267,62 @@ button:disabled { cursor: progress; opacity: .55; }
 .jam-mini-sub { font-size: 11px; color: #94a3b8; margin: 0; }
 
 /* Auth Gate & Lobby Cards */
+/* Netflix-style Catalog Layout */
+.netflix-row {
+  margin-bottom: 36px;
+}
+.netflix-row-title {
+  font-family: var(--font-display); font-size: 20px; font-weight: 800; color: #fff;
+  margin: 0 0 16px; display: flex; align-items: center; justify-content: space-between;
+  letter-spacing: -0.01em;
+}
+.netflix-row-scroll {
+  display: flex; gap: 18px; overflow-x: auto; padding-bottom: 16px;
+  scroll-behavior: smooth; -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+}
+.netflix-row-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+.netflix-row-scroll::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4); border-radius: 999px;
+}
+.netflix-row-scroll::-webkit-scrollbar-thumb {
+  background: var(--line-bright); border-radius: 999px;
+}
+.netflix-card {
+  flex: 0 0 220px; scroll-snap-align: start;
+  position: relative; aspect-ratio: 16 / 10; border-radius: 16px; overflow: hidden;
+  background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.1); cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1); display: flex; flex-direction: column;
+}
+.netflix-card:hover {
+  transform: translateY(-6px) scale(1.03);
+  border-color: var(--signal); box-shadow: 0 16px 36px rgba(0,0,0,0.6), 0 0 20px var(--signal-glow);
+  z-index: 2;
+}
+.netflix-card-cover {
+  position: absolute; inset: 0; background-size: cover; background-position: center;
+  transition: transform 0.3s ease;
+}
+.netflix-card:hover .netflix-card-cover { transform: scale(1.06); }
+.netflix-card-overlay {
+  position: absolute; inset: 0; background: linear-gradient(0deg, rgba(15, 23, 42, 0.95) 0%, rgba(15, 23, 42, 0.3) 60%, transparent 100%);
+  display: flex; flex-direction: column; justify-content: flex-end; padding: 14px;
+}
+.netflix-card-title {
+  font-size: 14px; font-weight: 700; color: #fff; margin: 0 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.netflix-card-sub { font-size: 11px; color: #94a3b8; margin: 0; }
+.pin-btn {
+  position: absolute; top: 10px; right: 10px; z-index: 3; width: 28px; height: 28px; padding: 0;
+  display: flex; align-items: center; justify-content: center; border-radius: 50%;
+  background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(6px); color: var(--mist);
+  border: 1px solid rgba(255,255,255,0.15); transition: all 0.2s ease;
+}
+.pin-btn:hover { background: var(--signal); color: #fff; transform: scale(1.1); }
+.pin-btn.pinned { background: var(--amber); color: #000; border-color: var(--amber); box-shadow: 0 0 10px rgba(240, 147, 43, 0.5); }
+
 .auth-split { display: grid; grid-template-columns: 1.1fr 1fr; min-height: 100vh; }
 .auth-visual {
   position: relative; display: flex; flex-direction: column; justify-content: center; gap: 22px;
