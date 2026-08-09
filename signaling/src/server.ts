@@ -517,6 +517,49 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     response.end();
     return;
   }
+
+  // ── DM / Inbox endpoints ──────────────────────────────────────
+  if (request.method === "GET" && request.url === "/inbox") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) { response.writeHead(401, { "content-type": "application/json" }); response.end(JSON.stringify({ error: "authentication required" })); return; }
+    const inbox = await auth.getInbox(username);
+    const unread = await auth.getUnreadCount(username);
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ inbox, unread }));
+    return;
+  }
+  if (request.method === "GET" && request.url?.startsWith("/dm/")) {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) { response.writeHead(401, { "content-type": "application/json" }); response.end(JSON.stringify({ error: "authentication required" })); return; }
+    const peer = decodeURIComponent(request.url.slice("/dm/".length).split("?")[0]);
+    const url = new URL(request.url, "http://localhost");
+    const before = url.searchParams.get("before") ? parseInt(url.searchParams.get("before")!, 10) : undefined;
+    const messages = await auth.getConversation(username, peer, 50, before);
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ messages }));
+    return;
+  }
+  if (request.method === "POST" && request.url?.startsWith("/dm/")) {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) { response.writeHead(401, { "content-type": "application/json" }); response.end(JSON.stringify({ error: "authentication required" })); return; }
+    const peer = decodeURIComponent(request.url.slice("/dm/".length));
+    const body = await readJsonBody<{ text?: string }>(request);
+    if (!body.text?.trim()) { response.writeHead(400, { "content-type": "application/json" }); response.end(JSON.stringify({ error: "message body required" })); return; }
+    const msg = await auth.sendDM(username, peer, body.text.trim().slice(0, 2000));
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(msg));
+    return;
+  }
+  if (request.method === "POST" && request.url?.startsWith("/dm/") && request.url?.endsWith("/read")) {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) { response.writeHead(401, { "content-type": "application/json" }); response.end(JSON.stringify({ error: "authentication required" })); return; }
+    const peer = decodeURIComponent(request.url.slice("/dm/".length).replace("/read", ""));
+    await auth.markRead(peer, username);
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+
   if (request.method === "POST" && request.url === "/rooms") {
     const username = await auth.usernameForToken(bearerToken(request));
     if (!username) {

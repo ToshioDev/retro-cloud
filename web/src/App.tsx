@@ -8,6 +8,17 @@ type RosterEntry = { peerId: string; playerNumber: number; username: string };
 type ChatMessage = { username: string; playerNumber?: number; text: string; timestamp: number };
 type RomEntry = { file: string; game: "nes" | "snes" | "ps1"; size: number; owner: string | null };
 
+function formatTimeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "ahora";
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d`;
+}
+
 const UPLOAD_INFO: Record<string, { exts: string[]; label: string; maxMB: number }> = {
   nes: { exts: [".nes"], label: ".nes", maxMB: 8 },
   snes: { exts: [".sfc", ".smc"], label: ".sfc · .smc", maxMB: 8 },
@@ -490,6 +501,14 @@ export default function App() {
   const [friends, setFriends] = useState<{ friends: string[]; incoming: string[]; outgoing: string[] }>({ friends: [], incoming: [], outgoing: [] });
   const [addFriendInput, setAddFriendInput] = useState("");
   const [friendError, setFriendError] = useState("");
+  const [inbox, setInbox] = useState<Array<{ peer: string; lastMessage: string; lastTime: string; unread: number }>>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [dmPeer, setDmPeer] = useState<string | null>(null);
+  const [dmMessages, setDmMessages] = useState<Array<{ id: number; sender: string; body: string; created_at: string }>>([]);
+  const [dmInput, setDmInput] = useState("");
+  const [dmLoading, setDmLoading] = useState(false);
+  const [socialTab, setSocialTab] = useState<"inbox" | "friends" | "requests">("inbox");
+  const dmEndRef = useRef<HTMLDivElement>(null);
   const statsIntervalRef = useRef<number | null>(null);
   const myPeerIdRef = useRef<string | null>(null);
   const hostPeerIdRef = useRef<string | null>(null);
@@ -892,6 +911,55 @@ export default function App() {
     await refreshFriends();
   }
 
+  async function refreshInbox() {
+    if (!authToken) return;
+    try {
+      const response = await fetch(`${apiBase}/inbox`, { headers: { authorization: `Bearer ${authToken}` } });
+      if (response.ok) {
+        const data = await response.json() as { inbox: typeof inbox; unread: number };
+        setInbox(data.inbox);
+        setUnreadCount(data.unread);
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function openDM(peer: string) {
+    if (!authToken) return;
+    setDmPeer(peer);
+    setDmLoading(true);
+    try {
+      const response = await fetch(`${apiBase}/dm/${encodeURIComponent(peer)}`, { headers: { authorization: `Bearer ${authToken}` } });
+      if (response.ok) {
+        const data = await response.json() as { messages: typeof dmMessages };
+        setDmMessages(data.messages);
+      }
+      await fetch(`${apiBase}/dm/${encodeURIComponent(peer)}/read`, { method: "POST", headers: { authorization: `Bearer ${authToken}` } });
+      await refreshInbox();
+    } catch { /* ignore */ }
+    setDmLoading(false);
+  }
+
+  async function sendDM() {
+    if (!authToken || !dmPeer || !dmInput.trim()) return;
+    const text = dmInput.trim();
+    setDmInput("");
+    try {
+      const response = await fetch(`${apiBase}/dm/${encodeURIComponent(dmPeer)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ text }),
+      });
+      if (response.ok) {
+        const msg = await response.json() as { id: number; created_at: string };
+        setDmMessages((prev) => [...prev, { id: msg.id, sender: authUsername!, body: text, created_at: msg.created_at }]);
+      }
+    } catch { /* ignore */ }
+  }
+
+  useEffect(() => {
+    if (dmEndRef.current) dmEndRef.current.scrollIntoView({ behavior: "smooth" });
+  }, [dmMessages]);
+
   useEffect(() => {
     if (!authToken) { setProfileEmail(null); return; }
     (async () => {
@@ -905,6 +973,7 @@ export default function App() {
         // ignore transient failures
       }
       void refreshFriends();
+      void refreshInbox();
       void refreshBios();
     })();
   }, [authToken]);
@@ -1833,77 +1902,191 @@ export default function App() {
 
     {inLobby && lobbyView === "social" && (
       <section className="lobby">
-        <div className="lobby-head">
-          <div>
-            <h2>{t("socialTitle")}</h2>
-            <p className="lobby-sub">{t("socialSub")}</p>
+        {/* Social Header */}
+        <div className="social-inbox-header">
+          <h2>{t("socialTitle")}</h2>
+          <div className="social-inbox-tabs">
+            <button className={`social-tab ${socialTab === "inbox" ? "active" : ""}`} onClick={() => { setSocialTab("inbox"); setDmPeer(null); }}>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
+              {t("inbox")}
+              {unreadCount > 0 && <span className="social-tab-badge">{unreadCount}</span>}
+            </button>
+            <button className={`social-tab ${socialTab === "friends" ? "active" : ""}`} onClick={() => { setSocialTab("friends"); setDmPeer(null); }}>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+              {t("friends")}
+            </button>
+            <button className={`social-tab ${socialTab === "requests" ? "active" : ""}`} onClick={() => { setSocialTab("requests"); setDmPeer(null); }}>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="8.5" cy="7" r="4" /><line x1="20" y1="8" x2="20" y2="14" /><line x1="23" y1="11" x2="17" y2="11" /></svg>
+              {t("requests")}
+              {friends.incoming.length > 0 && <span className="social-tab-badge">{friends.incoming.length}</span>}
+            </button>
           </div>
-          <button className="btn-ghost" onClick={() => void refreshFriends()}><IconRefresh /> {t("refresh")}</button>
         </div>
 
-        {/* Add Friend */}
-        <div className="lobby-card">
-          <p className="form-label">{t("addFriend")}</p>
-          <div className="form-row">
-            <input
-              className="field"
-              value={addFriendInput}
-              onChange={(event) => setAddFriendInput(event.target.value)}
-              onKeyDown={(event) => { if (event.key === "Enter") sendFriendRequest(); }}
-              placeholder={t("addFriendPlaceholder")}
-              aria-label={t("addFriendPlaceholder")}
-            />
-            <button className="btn-ghost" onClick={sendFriendRequest} disabled={!addFriendInput.trim()}>{t("add")}</button>
-          </div>
-          {friendError && <p className="form-error">{friendError}</p>}
-        </div>
-
-        {/* Pending Requests */}
-        {friends.incoming.length > 0 && (
-          <div className="lobby-card">
-            <p className="form-label">{t("pendingRequests")} · {friends.incoming.length}</p>
-            <ul className="friend-list">
-              {friends.incoming.map((name) => (
-                <li key={name} className="friend-row">
-                  <span className="roster-avatar small">{name.slice(0, 1).toUpperCase()}</span>
-                  <span className="friend-name">{name}</span>
-                  <button className="btn-primary friend-accept" onClick={() => respondFriendRequest(name, true)}>{t("accept")}</button>
-                  <button className="link-button" onClick={() => respondFriendRequest(name, false)}>{t("decline")}</button>
-                </li>
+        {/* DM Chat View */}
+        {dmPeer && (
+          <div className="dm-view">
+            <div className="dm-header">
+              <button className="dm-back" onClick={() => { setDmPeer(null); refreshInbox(); }}>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+              </button>
+              <span className="roster-avatar small online">{dmPeer.slice(0, 1).toUpperCase()}</span>
+              <span className="dm-peer-name">{dmPeer}</span>
+            </div>
+            <div className="dm-messages">
+              {dmLoading && <div className="dm-loading">{t("loading")}</div>}
+              {!dmLoading && dmMessages.length === 0 && (
+                <div className="dm-empty">
+                  <span className="dm-empty-icon">💬</span>
+                  <p>{t("startConversation")}</p>
+                </div>
+              )}
+              {dmMessages.map((msg) => (
+                <div key={msg.id} className={`dm-bubble ${msg.sender === authUsername ? "mine" : "theirs"}`}>
+                  <p className="dm-text">{msg.body}</p>
+                  <span className="dm-time">{new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                </div>
               ))}
-            </ul>
+              <div ref={dmEndRef} />
+            </div>
+            <div className="dm-input-bar">
+              <input
+                className="dm-input"
+                value={dmInput}
+                onChange={(e) => setDmInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendDM(); } }}
+                placeholder={t("typeMessage")}
+              />
+              <button className="dm-send" onClick={sendDM} disabled={!dmInput.trim()}>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Friends List */}
-        <div className="lobby-card">
-          <p className="form-label">{t("friends")} · {friends.friends.length}</p>
-          {friends.friends.length === 0 ? (
-            <p className="lobby-card-hint">{t("noFriendsYet")}</p>
-          ) : (
-            <ul className="friend-list">
-              {friends.friends.map((name) => {
-                const friendRoom = activeRooms.find((r) => r.owner === name && r.visibility !== "private");
-                const isOnline = !!friendRoom;
-                return (
-                  <li key={name} className="friend-row">
-                    <span className={`roster-avatar small ${isOnline ? "online" : ""}`}>{name.slice(0, 1).toUpperCase()}</span>
-                    <span className="friend-name">
-                      {name}
-                      {isOnline && <span className="friend-status">{t("playing")}</span>}
-                    </span>
-                    {isOnline && friendRoom && (
-                      <button className="btn-primary" onClick={() => connect(friendRoom.room, friendRoom.owner, friendRoom.game)}>
-                        {t("joinFriend")}
-                      </button>
-                    )}
-                    <button className="link-button" onClick={() => removeFriend(name)}>{t("remove")}</button>
+        {/* Inbox Tab */}
+        {!dmPeer && socialTab === "inbox" && (
+          <div className="inbox-list">
+            <div className="inbox-toolbar">
+              <button className="btn-ghost" onClick={() => void refreshInbox()}><IconRefresh /></button>
+            </div>
+            {inbox.length === 0 ? (
+              <div className="inbox-empty">
+                <span className="inbox-empty-icon">📭</span>
+                <p className="inbox-empty-title">{t("noMessages")}</p>
+                <p className="inbox-empty-sub">{t("startFromFriends")}</p>
+              </div>
+            ) : (
+              <ul className="inbox-conversations">
+                {inbox.map((conv) => {
+                  const friendRoom = activeRooms.find((r) => r.owner === conv.peer && r.visibility !== "private");
+                  const isOnline = !!friendRoom;
+                  return (
+                    <li key={conv.peer} className={`inbox-row ${conv.unread > 0 ? "unread" : ""}`} onClick={() => openDM(conv.peer)}>
+                      <span className={`roster-avatar ${isOnline ? "online" : ""}`}>{conv.peer.slice(0, 1).toUpperCase()}</span>
+                      <div className="inbox-row-content">
+                        <div className="inbox-row-top">
+                          <span className="inbox-row-name">{conv.peer}</span>
+                          <span className="inbox-row-time">{formatTimeAgo(conv.lastTime)}</span>
+                        </div>
+                        <p className="inbox-row-preview">{conv.lastMessage}</p>
+                      </div>
+                      {conv.unread > 0 && <span className="inbox-unread-badge">{conv.unread}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* Friends Tab */}
+        {!dmPeer && socialTab === "friends" && (
+          <div className="social-section">
+            <div className="inbox-toolbar">
+              <div className="add-friend-inline">
+                <input
+                  className="field add-friend-input"
+                  value={addFriendInput}
+                  onChange={(e) => setAddFriendInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") sendFriendRequest(); }}
+                  placeholder={t("addFriendPlaceholder")}
+                />
+                <button className="btn-primary btn-sm" onClick={sendFriendRequest} disabled={!addFriendInput.trim()}>{t("add")}</button>
+              </div>
+              <button className="btn-ghost" onClick={() => void refreshFriends()}><IconRefresh /></button>
+            </div>
+            {friendError && <p className="form-error">{friendError}</p>}
+            {friends.friends.length === 0 ? (
+              <div className="inbox-empty">
+                <span className="inbox-empty-icon">👥</span>
+                <p className="inbox-empty-title">{t("noFriendsYet")}</p>
+              </div>
+            ) : (
+              <ul className="friend-list-full">
+                {friends.friends.map((name) => {
+                  const friendRoom = activeRooms.find((r) => r.owner === name && r.visibility !== "private");
+                  const isOnline = !!friendRoom;
+                  const conv = inbox.find((c) => c.peer === name);
+                  return (
+                    <li key={name} className="friend-list-row">
+                      <span className={`roster-avatar ${isOnline ? "online" : ""}`}>{name.slice(0, 1).toUpperCase()}</span>
+                      <div className="friend-list-info">
+                        <span className="friend-list-name">{name}</span>
+                        {isOnline ? (
+                          <span className="friend-list-status online">{t("playing")}</span>
+                        ) : (
+                          <span className="friend-list-status">{t("offline")}</span>
+                        )}
+                      </div>
+                      <div className="friend-list-actions">
+                        <button className="icon-button-sm" onClick={() => openDM(name)} title={t("message")}>
+                          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                        </button>
+                        {isOnline && friendRoom && (
+                          <button className="btn-primary btn-xs" onClick={() => connect(friendRoom.room, friendRoom.owner, friendRoom.game)}>
+                            {t("join")}
+                          </button>
+                        )}
+                        <button className="icon-button-sm danger" onClick={() => removeFriend(name)} title={t("remove")}>
+                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* Requests Tab */}
+        {!dmPeer && socialTab === "requests" && (
+          <div className="social-section">
+            {friends.incoming.length === 0 ? (
+              <div className="inbox-empty">
+                <span className="inbox-empty-icon">✨</span>
+                <p className="inbox-empty-title">{t("noPendingRequests")}</p>
+              </div>
+            ) : (
+              <ul className="friend-list-full">
+                {friends.incoming.map((name) => (
+                  <li key={name} className="friend-list-row">
+                    <span className="roster-avatar">{name.slice(0, 1).toUpperCase()}</span>
+                    <div className="friend-list-info">
+                      <span className="friend-list-name">{name}</span>
+                      <span className="friend-list-status">{t("wantsToBeFriends")}</span>
+                    </div>
+                    <div className="friend-list-actions">
+                      <button className="btn-primary btn-xs" onClick={() => respondFriendRequest(name, true)}>{t("accept")}</button>
+                      <button className="btn-ghost btn-xs" onClick={() => respondFriendRequest(name, false)}>{t("decline")}</button>
+                    </div>
                   </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </section>
     )}
 

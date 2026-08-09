@@ -27,6 +27,16 @@ const ready = pool.query(`
     created_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (requester, addressee)
   );
+  CREATE TABLE IF NOT EXISTS messages (
+    id bigserial PRIMARY KEY,
+    sender text NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    receiver text NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    body text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages (sender, receiver, created_at);
+  CREATE INDEX IF NOT EXISTS idx_messages_receiver_unread ON messages (receiver, created_at) WHERE NOT read;
+  ALTER TABLE messages ADD COLUMN IF NOT EXISTS read boolean NOT NULL DEFAULT false;
 `).catch((error) => {
   console.error("[AUTH] failed to initialize database schema:", error instanceof Error ? error.message : error);
   throw error;
@@ -199,4 +209,73 @@ export async function areFriends(a: string, b: string): Promise<boolean> {
     [a, b],
   );
   return (result.rowCount ?? 0) > 0;
+}
+
+export async function sendDM(from: string, to: string, body: string): Promise<{ id: number; created_at: string }> {
+  await ready;
+  const result = await pool.query<{ id: number; created_at: string }>(
+    "INSERT INTO messages (sender, receiver, body) VALUES ($1, $2, $3) RETURNING id, created_at",
+    [from, to, body],
+  );
+  return result.rows[0];
+}
+
+export async function getConversation(a: string, b: string, limit = 50, before?: number): Promise<Array<{ id: number; sender: string; receiver: string; body: string; created_at: string; read: boolean }>> {
+  await ready;
+  if (before) {
+    const result = await pool.query(
+      `SELECT id, sender, receiver, body, created_at, read FROM messages
+       WHERE ((sender = $1 AND receiver = $2) OR (sender = $2 AND receiver = $1)) AND id < $3
+       ORDER BY created_at DESC LIMIT $4`,
+      [a, b, before, limit],
+    );
+    return result.rows.reverse();
+  }
+  const result = await pool.query(
+    `SELECT id, sender, receiver, body, created_at, read FROM messages
+     WHERE (sender = $1 AND receiver = $2) OR (sender = $2 AND receiver = $1)
+     ORDER BY created_at DESC LIMIT $3`,
+    [a, b, limit],
+  );
+  return result.rows.reverse();
+}
+
+export async function markRead(from: string, to: string): Promise<void> {
+  await ready;
+  await pool.query(
+    "UPDATE messages SET read = true WHERE sender = $1 AND receiver = $2 AND NOT read",
+    [from, to],
+  );
+}
+
+export async function getInbox(username: string): Promise<Array<{ peer: string; lastMessage: string; lastTime: string; unread: number }>> {
+  await ready;
+  const result = await pool.query(
+    `SELECT DISTINCT ON (peer)
+      peer, last_message, last_time, unread_count
+    FROM (
+      SELECT
+        CASE WHEN sender = $1 THEN receiver ELSE sender END AS peer,
+        body AS last_message,
+        created_at AS last_time,
+        SUM(CASE WHEN receiver = $1 AND NOT read THEN 1 ELSE 0 END) OVER (
+          PARTITION BY CASE WHEN sender = $1 THEN receiver ELSE sender END
+        ) AS unread_count
+      FROM messages
+      WHERE sender = $1 OR receiver = $1
+      ORDER BY created_at DESC
+    ) sub
+    ORDER BY peer, last_time DESC`,
+    [username],
+  );
+  return result.rows;
+}
+
+export async function getUnreadCount(username: string): Promise<number> {
+  await ready;
+  const result = await pool.query<{ cnt: string }>(
+    "SELECT COUNT(*)::text AS cnt FROM messages WHERE receiver = $1 AND NOT read",
+    [username],
+  );
+  return parseInt(result.rows[0]?.cnt ?? "0", 10);
 }
