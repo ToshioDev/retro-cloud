@@ -314,12 +314,18 @@ export default function App() {
     if (!authToken || closingRoom) return;
     setClosingRoom(true);
     try {
-      await fetch(`${roomsUrl}/${encodeURIComponent(room)}`, {
+      const response = await fetch(`${roomsUrl}/${encodeURIComponent(room)}`, {
         method: "DELETE",
         headers: { authorization: `Bearer ${authToken}` },
       });
-      socketRef.current?.close();
+      if (!response.ok && response.status !== 404) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? `failed to close room (${response.status})`);
+      }
+    } catch (error) {
+      console.error("[ROOM] failed to close room:", error);
     } finally {
+      socketRef.current?.close();
       setClosingRoom(false);
     }
   }

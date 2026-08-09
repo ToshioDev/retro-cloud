@@ -141,7 +141,7 @@ const httpServer = createServer((request, response) => {
 
 async function handleRequest(request: import("node:http").IncomingMessage, response: import("node:http").ServerResponse) {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  response.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   response.setHeader("Access-Control-Allow-Headers", "content-type, authorization");
   if (request.method === "OPTIONS") {
     response.writeHead(204);
