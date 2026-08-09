@@ -15,6 +15,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -65,6 +66,7 @@ struct Runtime {
     unsigned canvas_height = 0;
     bool canvas_ready = false;
     unsigned canvas_warmup_frames = 0;
+    std::map<std::pair<unsigned, unsigned>, unsigned> canvas_votes;
     unsigned pixel_format = RETRO_PIXEL_FORMAT_XRGB8888;
     std::string system_directory;
     std::string save_directory;
@@ -146,18 +148,27 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
     runtime.width = width;
     runtime.height = height;
     if (!runtime.canvas_ready) {
-        // Neither the first frame nor geometry.base_width/height reliably match what a game actually
-        // renders at (PS1 cores commonly report/emit a smaller boot-logo size before settling on the real
-        // gameplay resolution a few frames later), and sizing the canvas wrong either crops the picture or
-        // leaves it tiny inside a mostly-black frame. So: watch the first few frames, grow the canvas to
-        // fit whatever appears (capped by geometry.max_width/height so a one-off transient can't blow it
-        // up), and only start the video/WebRTC pipelines once that canvas has settled.
-        runtime.canvas_width = std::max(runtime.canvas_width, width);
-        runtime.canvas_height = std::max(runtime.canvas_height, height);
-        if (runtime.av.geometry.max_width > 0) runtime.canvas_width = std::min(runtime.canvas_width, runtime.av.geometry.max_width);
-        if (runtime.av.geometry.max_height > 0) runtime.canvas_height = std::min(runtime.canvas_height, runtime.av.geometry.max_height);
-        constexpr unsigned kCanvasWarmupFrames = 20;
+        // Neither the first frame nor geometry.base_width/height nor "biggest frame seen" reliably predicts
+        // what a game actually renders gameplay at: PS1 boot sequences commonly flash a one-off frame at a
+        // different (sometimes much larger, sometimes much smaller) size than the steady picture that
+        // follows — a BIOS init frame, a letterboxed publisher logo, etc. Picking the single biggest frame
+        // seen (the previous approach) let one such outlier lock in a canvas far bigger than the real
+        // content, rendering everything after it tiny in a corner.
+        // Instead: watch ~1.5s of frames and go with whichever resolution shows up most — a brief one-off
+        // transient only ever gets a handful of votes, while the steady-state picture (boot logo or not)
+        // dominates the window.
+        runtime.canvas_votes[{width, height}] += 1;
+        constexpr unsigned kCanvasWarmupFrames = 90;
         if (++runtime.canvas_warmup_frames < kCanvasWarmupFrames) return;
+        unsigned best_votes = 0;
+        for (const auto &[size, votes] : runtime.canvas_votes) {
+            if (votes > best_votes) {
+                best_votes = votes;
+                runtime.canvas_width = size.first;
+                runtime.canvas_height = size.second;
+            }
+        }
+        runtime.canvas_votes.clear();
         runtime.canvas_ready = true;
     }
     const auto canvas_width = runtime.canvas_width;
