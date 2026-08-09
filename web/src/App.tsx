@@ -29,15 +29,15 @@ const EXTENSION_TO_GAME: Record<string, string> = {
   ".bin": "ps1", ".iso": "ps1", ".img": "ps1", ".pbp": "ps1", ".chd": "ps1",
 };
 
-const CONSOLES: { id: string; label: string; sub: string; active: boolean; hue: string }[] = [
-  { id: "nes", label: "NES", sub: "8-bit", active: true, hue: "nes" },
-  { id: "snes", label: "SNES", sub: "16-bit", active: true, hue: "snes" },
-  { id: "ps1", label: "PS1", sub: "32-bit", active: true, hue: "ps1" },
-  { id: "gba", label: "GBA", sub: "Próximamente", active: false, hue: "gba" },
-  { id: "genesis", label: "Genesis", sub: "Próximamente", active: false, hue: "genesis" },
-  { id: "pce", label: "PC Engine", sub: "Próximamente", active: false, hue: "pce" },
-  { id: "gb", label: "Game Boy", sub: "Próximamente", active: false, hue: "gb" },
-  { id: "n64", label: "N64", sub: "Próximamente", active: false, hue: "n64" },
+const CONSOLES: { id: string; label: string; sub: string; active: boolean; hue: string; gradient: string }[] = [
+  { id: "nes", label: "NES", sub: "8-bit", active: true, hue: "nes", gradient: "linear-gradient(135deg, #a55eea, #0f172a)" },
+  { id: "snes", label: "SNES", sub: "16-bit", active: true, hue: "snes", gradient: "linear-gradient(135deg, #8b5cf6, #0f172a)" },
+  { id: "ps1", label: "PS1", sub: "32-bit", active: true, hue: "ps1", gradient: "linear-gradient(135deg, #00a8ff, #0f172a)" },
+  { id: "gba", label: "GBA", sub: "Próximamente", active: false, hue: "gba", gradient: "linear-gradient(135deg, #00e676, #0f172a)" },
+  { id: "genesis", label: "Genesis", sub: "Próximamente", active: false, hue: "genesis", gradient: "linear-gradient(135deg, #f0932b, #0f172a)" },
+  { id: "pce", label: "PC Engine", sub: "Próximamente", active: false, hue: "pce", gradient: "linear-gradient(135deg, #ff2a6d, #0f172a)" },
+  { id: "gb", label: "Game Boy", sub: "Próximamente", active: false, hue: "gb", gradient: "linear-gradient(135deg, #4ade80, #0f172a)" },
+  { id: "n64", label: "N64", sub: "Próximamente", active: false, hue: "n64", gradient: "linear-gradient(135deg, #ef4444, #0f172a)" },
 ];
 
 const signalingUrl = import.meta.env.VITE_SIGNALING_URL ?? "ws://localhost:8080/signaling";
@@ -317,6 +317,12 @@ const FEATURED_GAMES = [
 ];
 
 const HASHTAGS = ["#action", "#arcade", "#sports", "#platformer", "#indie", "#shooter", "#puzzle", "#shoot'em up", "#fighting"];
+const ROOM_FILTERS = [
+  { key: "all", icon: "🎮", labelKey: "filterAll" as const },
+  { key: "friends", icon: "👥", labelKey: "filterFriends" as const },
+  { key: "public", icon: "🌍", labelKey: "filterPublic" as const },
+  { key: "private", icon: "🔒", labelKey: "filterPrivate" as const },
+];
 
 function TouchButton({ label, className, onPress, style }: { label: string; className: string; onPress: (pressed: boolean) => void; style?: React.CSSProperties }) {
   const [held, setHeld] = useState(false);
@@ -678,8 +684,10 @@ function LangToggle({ lang, setLang }: { lang: Lang; setLang: (lang: Lang) => vo
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [lang, setLang] = useState<Lang>(loadLang);
+  const [theme, setTheme] = useState<"dark" | "light">(() => (localStorage.getItem("rc_theme") === "light" ? "light" : "dark") as "dark" | "light");
   const t = (key: Parameters<typeof translate>[1]) => translate(lang, key);
   useEffect(() => { localStorage.setItem("rc_lang", lang); document.documentElement.lang = lang; }, [lang]);
+  useEffect(() => { localStorage.setItem("rc_theme", theme); document.body.classList.toggle("light", theme === "light"); }, [theme]);
   const socketRef = useRef<WebSocket | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const inputRef = useRef<RTCDataChannel | null>(null);
@@ -701,7 +709,21 @@ export default function App() {
   const [roms, setRoms] = useState<RomEntry[]>([]);
   const [selectedRom, setSelectedRom] = useState<string | null>(null);
   const [catalogConsole, setCatalogConsole] = useState<string>("all");
+
+  const friendRooms = activeRooms.filter((r) => r.owner != null && friends.friends.includes(r.owner) && r.visibility !== "private");
+  const filteredRooms = activeRooms.filter((r) => {
+    if (roomFilter === "friends") return r.owner != null && friends.friends.includes(r.owner);
+    if (roomFilter === "public") return r.visibility !== "private";
+    if (roomFilter === "private") return r.visibility === "private";
+    return true;
+  }).filter((r) => {
+    if (!roomSearch.trim()) return true;
+    const q = roomSearch.toLowerCase();
+    return r.room.toLowerCase().includes(q) || r.owner?.toLowerCase().includes(q) || r.game?.toLowerCase().includes(q);
+  });
   const [catalogSearch, setCatalogSearch] = useState("");
+  const [roomSearch, setRoomSearch] = useState("");
+  const [roomFilter, setRoomFilter] = useState<string>("all");
   const [gameModalRom, setGameModalRom] = useState<RomEntry | null>(null);
   const [ps1BiosReady, setPs1BiosReady] = useState<boolean | null>(null);
   const [biosUploading, setBiosUploading] = useState(false);
@@ -1649,7 +1671,7 @@ export default function App() {
         <button className={lobbyView === "social" ? "bottom-tab active" : "bottom-tab"} onClick={() => setLobbyView("social")}>
           <IconFriends /><span>{t("socialTab")}</span>
         </button>
-        <button className="bottom-tab" onClick={() => setAccountPopoverOpen(true)}>
+        <button className={lobbyView === "profile" ? "bottom-tab active" : "bottom-tab"} onClick={() => setLobbyView("profile")}>
           <span className="roster-avatar small" style={{ position: "relative" }}>
             {(authUsername ?? "?").slice(0, 1).toUpperCase()}
             {friends.incoming.length > 0 && <span className="fab-badge inline-badge" />}
@@ -1721,14 +1743,62 @@ export default function App() {
 
     {inLobby && lobbyView === "rooms" && (
       <section className="lobby">
-        <div className="lobby-head">
-          <div>
-            <h2>{t("roomsInSession")}</h2>
-            <p className="lobby-sub">{t("lobbySub")}</p>
+        {/* Desktop Header */}
+        <div className="jam-header-bar topbar-desktop-only">
+          <div className="jam-search-box">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            <input
+              className="jam-search-input"
+              value={roomSearch}
+              onChange={(e) => setRoomSearch(e.target.value)}
+              placeholder={t("searchRooms")}
+              aria-label={t("searchRooms")}
+            />
           </div>
-          <button className="btn-ghost" onClick={() => void refreshRooms()}><IconRefresh /> {t("refresh")}</button>
+          <div className="jam-hashtags-row">
+            {ROOM_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                className={`jam-hashtag-pill${roomFilter === f.key ? " active" : ""}`}
+                onClick={() => { setRoomFilter(roomFilter === f.key ? "all" : f.key); playClickSound(); }}
+              >
+                {f.icon} {t(f.labelKey)}
+              </button>
+            ))}
+          </div>
         </div>
 
+        {/* Mobile Header */}
+        <div className="jam-mobile-header topbar-mobile-only">
+          <div className="jam-mobile-search">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            <input
+              className="jam-mobile-search-input"
+              value={roomSearch}
+              onChange={(e) => setRoomSearch(e.target.value)}
+              placeholder={t("searchRooms")}
+              aria-label={t("searchRooms")}
+            />
+            {roomSearch && (
+              <button className="jam-mobile-search-clear" onClick={() => setRoomSearch("")}>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            )}
+          </div>
+          <div className="jam-mobile-tags">
+            {ROOM_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                className={`jam-mobile-tag${roomFilter === f.key ? " active" : ""}`}
+                onClick={() => { setRoomFilter(roomFilter === f.key ? "all" : f.key); playClickSound(); }}
+              >
+                {f.icon} {t(f.labelKey)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Stats strip */}
         <div className="stat-strip">
           <div className="stat-card">
             <span className="stat-value">{activeRooms.length}</span>
@@ -1744,35 +1814,78 @@ export default function App() {
           </div>
         </div>
 
-        {activeRooms.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-glyph">▢</div>
-            <p>{t("noRoomsOnline")}</p>
-            <span>{t("createOneBelow")}</span>
-          </div>
-        ) : (
-          <div className="room-grid">
-            {activeRooms.map((entry) => (
-              <button key={entry.room} className="room-card" onClick={() => connect(entry.room, entry.owner, entry.game)}>
-                <div className="room-card-top">
-                  <span className="live-pulse" />
-                  <span className="room-card-id">{entry.room}</span>
-                  {entry.visibility === "private" && <span className="visibility-tag"><IconLock /> {t("private")}</span>}
-                </div>
-                <div className="room-card-owner">
-                  <span className="roster-avatar small">{(entry.owner ?? "?").slice(0, 1).toUpperCase()}</span>
-                  <span>{entry.owner ? `${t("hostedBy")} ${entry.owner}` : t("unowned")}</span>
-                </div>
-                <div className="room-card-meta">
-                  <span className="room-card-players">{entry.peerCount} {t("playing")}</span>
-                </div>
-                <span className="room-card-cta">{t("joinRoomCta")}</span>
-              </button>
-            ))}
+        {/* Friend rooms highlight */}
+        {friendRooms.length > 0 && (
+          <div className="jam-section">
+            <h3 className="netflix-row-title">👥 {t("friendsPlaying")}</h3>
+            <div className="room-showcase-grid">
+              {friendRooms.map((entry) => (
+                <button key={entry.room} className="room-showcase-card friend-highlight" onClick={() => connect(entry.room, entry.owner, entry.game)}>
+                  <div className="room-showcase-banner">
+                    <div className="room-showcase-banner-bg" style={{ background: CONSOLES.find(c => c.id === entry.game)?.gradient ?? "linear-gradient(135deg, #8b5cf6, #0f172a)" }} />
+                    <div className="room-showcase-overlay" />
+                    <span className="live-pulse" />
+                    <span className="room-showcase-game">{CONSOLES.find(c => c.id === entry.game)?.label ?? entry.game?.toUpperCase()}</span>
+                  </div>
+                  <div className="room-showcase-body">
+                    <div className="room-showcase-owner">
+                      <span className="roster-avatar small">{(entry.owner ?? "?").slice(0, 1).toUpperCase()}</span>
+                      <span className="room-showcase-name">{entry.owner}</span>
+                    </div>
+                    <div className="room-showcase-info">
+                      <span className="room-showcase-players">🎮 {entry.peerCount} {t("playing")}</span>
+                      <span className="room-showcase-code">{entry.room}</span>
+                    </div>
+                    <span className="room-showcase-cta">{t("joinRoomCta")}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
-        <div className="lobby-card">
+        {/* All rooms */}
+        <div className="jam-section">
+          <h3 className="netflix-row-title">{t("allRooms")}</h3>
+          {filteredRooms.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-glyph">🎮</div>
+              <p>{t("noRoomsOnline")}</p>
+              <span>{t("createOneBelow")}</span>
+            </div>
+          ) : (
+            <div className="room-showcase-grid">
+              {filteredRooms.map((entry) => {
+                const isFriend = entry.owner != null && friends.friends.includes(entry.owner);
+                return (
+                  <button key={entry.room} className={`room-showcase-card${isFriend ? " friend-card" : ""}`} onClick={() => connect(entry.room, entry.owner, entry.game)}>
+                    <div className="room-showcase-banner">
+                      <div className="room-showcase-banner-bg" style={{ background: CONSOLES.find(c => c.id === entry.game)?.gradient ?? "linear-gradient(135deg, #8b5cf6, #0f172a)" }} />
+                      <div className="room-showcase-overlay" />
+                      {entry.visibility === "private" && <span className="room-showcase-lock"><IconLock /></span>}
+                      <span className="room-showcase-game">{CONSOLES.find(c => c.id === entry.game)?.label ?? entry.game?.toUpperCase()}</span>
+                    </div>
+                    <div className="room-showcase-body">
+                      <div className="room-showcase-owner">
+                        <span className="roster-avatar small">{(entry.owner ?? "?").slice(0, 1).toUpperCase()}</span>
+                        <span className="room-showcase-name">{entry.owner ?? t("unowned")}</span>
+                        {isFriend && <span className="friend-badge"> Friend</span>}
+                      </div>
+                      <div className="room-showcase-info">
+                        <span className="room-showcase-players">🎮 {entry.peerCount} {t("playing")}</span>
+                        <span className="room-showcase-code">{entry.room}</span>
+                      </div>
+                      <span className="room-showcase-cta">{t("joinRoomCta")}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Join by code */}
+        <div className="lobby-card" style={{ marginTop: 12 }}>
           <p className="form-label">{t("joinByCode")}</p>
           <div className="form-row">
             <input
@@ -1784,6 +1897,10 @@ export default function App() {
             />
             <button className="btn-ghost" onClick={() => connect()} disabled={status !== "Disconnected"}>{t("join")}</button>
           </div>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "center", padding: "12px 0" }}>
+          <button className="btn-ghost" onClick={() => void refreshRooms()}><IconRefresh /> {t("refresh")}</button>
         </div>
       </section>
     )}
@@ -2599,7 +2716,6 @@ export default function App() {
             >
               <IconTv active={crtEffect} />
             </button>
-            <div className="lang-toggle-desktop topbar-desktop-only"><LangToggle lang={lang} setLang={setLang} /></div>
             <button className="icon-button fullscreen-toggle topbar-desktop-only" aria-label={t("fullscreen")} onClick={toggleFullscreen}>
               <IconFullscreen active={isFullscreen} />
             </button>
@@ -2609,6 +2725,25 @@ export default function App() {
                 <path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.5-2.4 1a7.7 7.7 0 0 0-1.7-1L15 3h-4l-.3 2.3a7.7 7.7 0 0 0-1.7 1l-2.4-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7.7 7.7 0 0 0 1.7 1L9 21h4l.3-2.3a7.7 7.7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5Z" />
               </svg>
             </button>
+            <div className="topbar-right-group topbar-desktop-only">
+              <LangToggle lang={lang} setLang={setLang} />
+              <button
+                className={`icon-button theme-toggle`}
+                aria-label={theme === "dark" ? "Light theme" : "Dark theme"}
+                title={theme === "dark" ? t("lightTheme") : t("darkTheme")}
+                onClick={() => setTheme((v) => v === "dark" ? "light" : "dark")}
+              >
+                {theme === "dark" ? (
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                  </svg>
+                )}
+              </button>
+            </div>
             <div className="overflow-wrap topbar-mobile-only">
               <button className="icon-button overflow-btn" aria-label="Menu" onClick={() => setOverflowOpen((v) => !v)}>
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

@@ -21,6 +21,50 @@
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
+/* Light theme */
+body.light {
+  --void: #f1f5f9;
+  --panel: rgba(255, 255, 255, 0.85);
+  --panel-solid: #ffffff;
+  --panel-raised: rgba(241, 245, 249, 0.9);
+  --line: rgba(0, 0, 0, 0.08);
+  --line-bright: rgba(139, 92, 246, 0.4);
+  --signal: #7c3aed;
+  --signal-glow: rgba(124, 58, 237, 0.25);
+  --signal-dim: rgba(124, 58, 237, 0.12);
+  --cyan: #0284c7;
+  --cyan-glow: rgba(2, 132, 199, 0.2);
+  --pink: #e11d48;
+  --amber: #d97706;
+  --emerald: #059669;
+  --ember: #dc2626;
+  --mist: #64748b;
+  --paper: #0f172a;
+  color-scheme: light;
+}
+body.light {
+  background-image: none;
+  background-color: var(--void);
+}
+body.light .player-topbar.overlay-bar {
+  background: linear-gradient(180deg, rgba(255,255,255,.92) 0%, rgba(255,255,255,.6) 65%, transparent 100%);
+}
+body.light .player-pill, body.light .latency-pill {
+  background: rgba(255,255,255,0.85); border-color: rgba(0,0,0,0.08);
+}
+body.light .touch-controls button { --_dpad-bg: rgba(30,30,38,0.85); }
+body.light .room-card, body.light .lobby-card, body.light .settings-panel {
+  background: var(--panel-solid); border-color: var(--line);
+}
+body.light .touch-btn.touch-dpad { background: rgba(30,30,38,0.88); }
+body.light .touch-btn.touch-circle {
+  box-shadow: 0 3px 8px rgba(0,0,0,0.15), inset 0 1px 1px rgba(255,255,255,0.15);
+}
+body.light .overflow-dropdown { background: var(--panel-solid); border-color: var(--line); box-shadow: 0 8px 30px rgba(0,0,0,0.12); }
+body.light .account-popover { background: var(--panel-solid); border-color: var(--line); }
+body.light .settings-backdrop { background: rgba(0,0,0,.3); }
+body.light .social-panel { background: var(--panel-solid); }
+
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html { color-scheme: dark; -webkit-text-size-adjust: 100%; }
 body {
@@ -157,6 +201,90 @@ button:disabled { cursor: progress; opacity: .55; }
 .jam-section-title {
   font-family: var(--font-display); font-size: 20px; font-weight: 800; color: #fff;
   margin: 0 0 18px; display: flex; align-items: center; justify-content: space-between; letter-spacing: -0.01em;
+}
+/* Room showcase grid */
+.room-showcase-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px;
+}
+.room-showcase-card {
+  position: relative; border-radius: 16px; overflow: hidden; background: var(--panel-solid);
+  border: 1px solid var(--line); cursor: pointer; text-align: left;
+  transition: transform .2s cubic-bezier(.16,1,.3,1), box-shadow .2s ease, border-color .2s ease;
+  display: flex; flex-direction: column;
+}
+.room-showcase-card:hover {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 16px 36px rgba(0,0,0,.45), 0 0 20px rgba(139,92,246,.2);
+  border-color: rgba(139,92,246,.4);
+}
+.room-showcase-card.friend-highlight {
+  border-color: rgba(0,230,118,.3);
+}
+.room-showcase-card.friend-highlight:hover {
+  border-color: rgba(0,230,118,.6);
+  box-shadow: 0 16px 36px rgba(0,0,0,.45), 0 0 20px rgba(0,230,118,.2);
+}
+.room-showcase-banner {
+  position: relative; aspect-ratio: 16/9; width: 100%; overflow: hidden;
+}
+.room-showcase-banner-bg {
+  position: absolute; inset: 0; transition: transform .4s ease;
+}
+.room-showcase-card:hover .room-showcase-banner-bg { transform: scale(1.06); }
+.room-showcase-overlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,.1) 0%, rgba(0,0,0,.7) 75%);
+}
+.room-showcase-game {
+  position: absolute; top: 10px; left: 10px; z-index: 2;
+  padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 800;
+  background: rgba(0,0,0,.5); backdrop-filter: blur(8px); color: #fff;
+  letter-spacing: .03em; text-transform: uppercase;
+}
+.room-showcase-lock {
+  position: absolute; top: 10px; right: 10px; z-index: 2;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(0,0,0,.5); backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center; color: var(--amber);
+}
+.room-showcase-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 8px; }
+.room-showcase-owner { display: flex; align-items: center; gap: 8px; }
+.room-showcase-name {
+  font-weight: 700; font-size: 14px; color: var(--paper); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.friend-badge {
+  font-size: 10px; font-weight: 700; color: var(--emerald);
+  background: rgba(0,230,118,.1); padding: 2px 6px; border-radius: 4px;
+}
+.room-showcase-info {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px; color: var(--mist);
+}
+.room-showcase-players { font-weight: 600; }
+.room-showcase-code {
+  font-family: var(--font-mono); font-weight: 700; font-size: 11px;
+  color: var(--cyan); background: rgba(0,168,255,.08); padding: 2px 6px; border-radius: 4px;
+}
+.room-showcase-cta {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 8px; border-radius: 10px; font-size: 12px; font-weight: 700;
+  background: rgba(139,92,246,.15); color: var(--signal); border: 1px solid rgba(139,92,246,.2);
+  transition: background .15s;
+}
+.room-showcase-card:hover .room-showcase-cta {
+  background: rgba(139,92,246,.25);
+}
+/* Live pulse */
+.live-pulse {
+  position: absolute; top: 10px; right: 10px; z-index: 2;
+  width: 10px; height: 10px; border-radius: 50%; background: var(--ember);
+  box-shadow: 0 0 8px var(--ember); animation: pulse 1.5s ease infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+.netflix-row-title {
+  font-family: var(--font-display); font-size: 18px; font-weight: 800; color: var(--paper);
+  margin: 0 0 14px; letter-spacing: -.01em;
 }
 .jam-featured-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px;
@@ -688,6 +816,11 @@ button:disabled { cursor: progress; opacity: .55; }
   pointer-events: none;
 }
 .player-topbar.overlay-bar > * { pointer-events: auto; }
+.topbar-right-group {
+  margin-left: auto; display: flex; align-items: center; gap: 6px;
+}
+.theme-toggle { transition: transform .2s; }
+.theme-toggle:hover { transform: rotate(15deg); }
 .brand-mini { margin-right: 6px; }
 .brand-mini .brand-name { font-size: 18px; }
 
