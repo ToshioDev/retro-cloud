@@ -34,9 +34,9 @@ const ready = pool.query(`
     body text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
   );
+  ALTER TABLE messages ADD COLUMN IF NOT EXISTS read boolean NOT NULL DEFAULT false;
   CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages (sender, receiver, created_at);
   CREATE INDEX IF NOT EXISTS idx_messages_receiver_unread ON messages (receiver, created_at) WHERE NOT read;
-  ALTER TABLE messages ADD COLUMN IF NOT EXISTS read boolean NOT NULL DEFAULT false;
 `).catch((error) => {
   console.error("[AUTH] failed to initialize database schema:", error instanceof Error ? error.message : error);
   throw error;
@@ -251,21 +251,24 @@ export async function markRead(from: string, to: string): Promise<void> {
 export async function getInbox(username: string): Promise<Array<{ peer: string; lastMessage: string; lastTime: string; unread: number }>> {
   await ready;
   const result = await pool.query(
-    `SELECT DISTINCT ON (peer)
-      peer, last_message, last_time, unread_count
-    FROM (
+    `SELECT peer, last_message, last_time, unread_count FROM (
       SELECT
         CASE WHEN sender = $1 THEN receiver ELSE sender END AS peer,
         body AS last_message,
         created_at AS last_time,
-        SUM(CASE WHEN receiver = $1 AND NOT read THEN 1 ELSE 0 END) OVER (
+        (SELECT COUNT(*)::int FROM messages m2
+         WHERE ((m2.sender = CASE WHEN m1.sender = $1 THEN m1.receiver ELSE m1.sender END)
+                AND m2.receiver = $1 AND NOT m2.read)
+        ) AS unread_count,
+        ROW_NUMBER() OVER (
           PARTITION BY CASE WHEN sender = $1 THEN receiver ELSE sender END
-        ) AS unread_count
-      FROM messages
+          ORDER BY created_at DESC
+        ) AS rn
+      FROM messages m1
       WHERE sender = $1 OR receiver = $1
-      ORDER BY created_at DESC
     ) sub
-    ORDER BY peer, last_time DESC`,
+    WHERE rn = 1
+    ORDER BY last_time DESC`,
     [username],
   );
   return result.rows;
