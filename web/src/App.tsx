@@ -106,6 +106,7 @@ export default function App() {
   const [roomOwner, setRoomOwner] = useState<string | null>(null);
   const [closingRoom, setClosingRoom] = useState(false);
   const [activeRooms, setActiveRooms] = useState<ActiveRoom[]>([]);
+  const [lobbyView, setLobbyView] = useState<"rooms" | "catalog">("rooms");
   const [roms, setRoms] = useState<RomEntry[]>([]);
   const [selectedRom, setSelectedRom] = useState<string | null>(null);
   const [newRoomVisibility, setNewRoomVisibility] = useState<"public" | "private">("public");
@@ -464,7 +465,7 @@ export default function App() {
     return <div className="auth-split">
       <div className="auth-visual">
         <div className="brand-row">
-          <div className="brand"><span className="brand-mark">◆</span><span className="brand-name">retro<em>deck</em></span></div>
+          <div className="brand"><span className="brand-mark">◆</span><span className="brand-name">retro<em>X</em></span></div>
           <LangToggle lang={lang} setLang={setLang} />
         </div>
         <h1 className="auth-visual-title" dangerouslySetInnerHTML={{ __html: t("brandTagline") }} />
@@ -503,7 +504,7 @@ export default function App() {
   return <main className={inLobby ? undefined : "in-room"}>
     {inLobby && (
       <header className="brand-header">
-        <div className="brand"><span className="brand-mark">◆</span><span className="brand-name">retro<em>deck</em></span></div>
+        <div className="brand"><span className="brand-mark">◆</span><span className="brand-name">retro<em>X</em></span></div>
         <div className="header-right">
           <LangToggle lang={lang} setLang={setLang} />
           <span className="user-chip">{authUsername}<button className="link-button" onClick={logout}>{t("logOut")}</button></span>
@@ -512,6 +513,13 @@ export default function App() {
     )}
 
     {inLobby && (
+      <nav className="lobby-tabs">
+        <button className={lobbyView === "rooms" ? "lobby-tab active" : "lobby-tab"} onClick={() => setLobbyView("rooms")}>{t("roomsTab")}</button>
+        <button className={lobbyView === "catalog" ? "lobby-tab active" : "lobby-tab"} onClick={() => setLobbyView("catalog")}>{t("catalogTab")}</button>
+      </nav>
+    )}
+
+    {inLobby && lobbyView === "rooms" && (
       <section className="lobby">
         <div className="lobby-head">
           <div>
@@ -546,6 +554,24 @@ export default function App() {
           </div>
         )}
 
+        <div className="lobby-card">
+          <p className="form-label">{t("joinByCode")}</p>
+          <div className="form-row">
+            <input
+              className="field"
+              value={room}
+              onChange={(event) => { setRoom(event.target.value); setRoomTouched(true); }}
+              placeholder={t("roomCodePlaceholder")}
+              aria-label={t("room")}
+            />
+            <button className="btn-ghost" onClick={() => connect()} disabled={status !== "Disconnected"}>{t("join")}</button>
+          </div>
+        </div>
+      </section>
+    )}
+
+    {inLobby && lobbyView === "catalog" && (
+      <section className="lobby">
         <div className="lobby-split">
           <div className="lobby-games">
             <p className="form-label showcase-label">{t("chooseRom")}</p>
@@ -626,20 +652,6 @@ export default function App() {
               </label>
               {uploadError && <p className="form-error">{uploadError}</p>}
             </div>
-
-            <div className="lobby-card">
-              <p className="form-label">{t("joinByCode")}</p>
-              <div className="form-row">
-                <input
-                  className="field"
-                  value={room}
-                  onChange={(event) => { setRoom(event.target.value); setRoomTouched(true); }}
-                  placeholder={t("roomCodePlaceholder")}
-                  aria-label={t("room")}
-                />
-                <button className="btn-ghost" onClick={() => connect()} disabled={status !== "Disconnected"}>{t("join")}</button>
-              </div>
-            </div>
           </aside>
         </div>
       </section>
@@ -649,7 +661,7 @@ export default function App() {
       <div className="room-layout">
         <div className="player-stage">
           <div className="player-topbar overlay-bar">
-            <div className="brand brand-mini"><span className="brand-mark">◆</span><span className="brand-name">retro<em>deck</em></span></div>
+            <div className="brand brand-mini"><span className="brand-mark">◆</span><span className="brand-name">retro<em>X</em></span></div>
             <div className="latency-wrap">
               <button
                 className={`latency-pill ${status.includes("Connected") ? (rttMs === null ? "pending" : rttMs < 80 ? "good" : rttMs < 150 ? "ok" : "bad") : "down"}`}

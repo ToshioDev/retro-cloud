@@ -91,6 +91,9 @@ button:disabled { cursor: progress; opacity: .55; }
 }
 
 /* Lobby */
+.lobby-tabs { display: flex; gap: 6px; padding: 4px; margin-bottom: 8px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); width: fit-content; }
+.lobby-tab { padding: 8px 18px; font-size: 13px; font-weight: 600; background: transparent; border: none; color: var(--mist); border-radius: 9px; }
+.lobby-tab.active { background: var(--signal); color: #fff; }
 .lobby { padding: 8px 0; }
 .lobby-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 22px; }
 .lobby-head h2 { margin: 0 0 4px; font-family: var(--font-display); font-size: 22px; font-weight: 600; }
