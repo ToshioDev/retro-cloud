@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { type Lang, loadLang, translate } from "./i18n";
+import { isSoundEnabled, setSoundEnabled, playClickSound, playJoinSound, playSuccessSound, playChatSound } from "./soundFx";
 
 type SignalMessage = { type: string; room?: string; from?: string; payload?: any };
 type Button = "UP" | "DOWN" | "LEFT" | "RIGHT" | "A" | "B" | "X" | "Y" | "START" | "SELECT" | "L" | "R" | "L2" | "R2";
@@ -180,6 +181,20 @@ function IconRoomsNav() {
   </svg>;
 }
 
+function IconTv({ active }: { active: boolean }) {
+  return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="7" width="20" height="13" rx="2" /><path d="M17 2l-5 5-5-5" />
+    {active && <path d="M6 11h12M6 14h12M6 17h12" strokeWidth="1.2" opacity="0.6" />}
+  </svg>;
+}
+
+function IconSoundFx({ enabled }: { enabled: boolean }) {
+  return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 5L6 9H2v6h4l5 4V5z" />
+    {enabled ? <path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14" /> : <line x1="23" y1="9" x2="17" y2="15" />}
+  </svg>;
+}
+
 function TouchButton({ label, className, onPress }: { label: string; className: string; onPress: (pressed: boolean) => void }) {
   const [held, setHeld] = useState(false);
   const pressedRef = useRef(false);
@@ -308,9 +323,10 @@ export default function App() {
   const gamepadBindingsRef = useRef(gamepadBindings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"display" | "audio" | "controls">("display");
-  // Always start each session on "Fit" rather than remembering a pixel-exact zoom: a stuck 1x/2x/3x choice
-  // from a past session renders the stream tiny in a corner of a modern widescreen viewport, which reads
-  // as broken rather than intentional. The picker in Settings > Display still lets a session opt into it.
+  const [crtEffect, setCrtEffect] = useState<boolean>(() => localStorage.getItem("rc_crt") === "1");
+  const [soundFxEnabled, setSoundFxEnabledState] = useState<boolean>(isSoundEnabled);
+  const [roomCopied, setRoomCopied] = useState(false);
+  useEffect(() => { localStorage.setItem("rc_crt", crtEffect ? "1" : "0"); }, [crtEffect]);
   const [scale, setScale] = useState<string>("fit");
   const [touchLayout, setTouchLayout] = useState<"standard" | "swapped">(() => (localStorage.getItem("rc_touch_layout") === "swapped" ? "swapped" : "standard"));
   const [touchSize, setTouchSize] = useState<"compact" | "large">(() => (localStorage.getItem("rc_touch_size") === "large" ? "large" : "compact"));
@@ -1246,6 +1262,16 @@ export default function App() {
 
     {inLobby && lobbyView === "catalog" && (
       <section className="lobby">
+        <div className="hero-banner">
+          <h2 className="hero-banner-title">retro<span style={{ color: "var(--cyan)" }}>X</span> Cloud Arcade</h2>
+          <p className="hero-banner-sub">{translate(lang, "brandSub")}</p>
+          <div className="hero-stats-row">
+            <span className="hero-stat-chip"><span className="live-pulse" /> {activeRooms.length} {t("statLiveRooms")}</span>
+            <span className="hero-stat-chip">🎮 NES · SNES · PS1</span>
+            <span className="hero-stat-chip">⚡ WebRTC Low Latency</span>
+          </div>
+        </div>
+
         <div className="catalog-toolbar">
           <div className="catalog-search-wrap">
             <svg className="catalog-search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
@@ -1562,12 +1588,31 @@ export default function App() {
               )}
             </div>
             {playerNumber && <span className="player-pill accent">P{playerNumber}</span>}
-            <span className="player-pill muted room-code-pill">{room}</span>
+            <button
+              className="player-pill muted room-code-pill"
+              onClick={() => {
+                void navigator.clipboard.writeText(room);
+                setRoomCopied(true);
+                playClickSound();
+                window.setTimeout(() => setRoomCopied(false), 2000);
+              }}
+              title={t("copyRoomCode")}
+            >
+              {roomCopied ? `✓ ${t("roomCodeCopied")}` : room}
+            </button>
             {authUsername === roomOwner && (
               <button className="btn-danger" onClick={closeRoom} disabled={closingRoom}>
                 {closingRoom ? t("closing") : t("closeRoom")}
               </button>
             )}
+            <button
+              className={`icon-button ${crtEffect ? "active-toggle" : ""}`}
+              aria-label={t("crtEffect")}
+              title={t("crtEffect")}
+              onClick={() => { setCrtEffect((v) => !v); playClickSound(); }}
+            >
+              <IconTv active={crtEffect} />
+            </button>
             <div className="lang-toggle-desktop"><LangToggle lang={lang} setLang={setLang} /></div>
             <button className="icon-button fullscreen-toggle" aria-label={t("fullscreen")} onClick={toggleFullscreen}>
               <IconFullscreen active={isFullscreen} />
@@ -1579,7 +1624,7 @@ export default function App() {
               </svg>
             </button>
           </div>
-          <div className={`stage stage-${scale === "fit" ? "fit" : "fixed"}`}>
+          <div className={`stage stage-${scale === "fit" ? "fit" : "fixed"} ${crtEffect ? "crt-active" : ""}`}>
             <div
               className={[
                 "stage-canvas",
@@ -1663,6 +1708,21 @@ export default function App() {
               ))}
               <div ref={chatEndRef} />
             </div>
+            <div className="chat-reactions-row">
+              {["👏", "🔥", "👾", "🕹️", "🎮", "🏆", "😂"].map((emoji) => (
+                <button
+                  key={emoji}
+                  className="quick-reaction-btn"
+                  onClick={() => {
+                    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+                    socketRef.current.send(JSON.stringify({ type: "chat", room, payload: { text: emoji } }));
+                    playChatSound();
+                  }}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
             <div className="chat-input-row">
               <input
                 className="field"
@@ -1721,6 +1781,15 @@ export default function App() {
                 <button className={canvasLocked ? "scale-option active canvas-lock-btn" : "scale-option canvas-lock-btn"} onClick={toggleCanvasLock}>
                   <IconPin locked={canvasLocked} /> {canvasLocked ? t("unlockPosition") : t("lockPosition")}
                 </button>
+
+                <p className="settings-label" style={{ marginTop: 14 }}>{t("crtEffect")}</p>
+                <span className="lobby-card-hint">{t("crtEffectHint")}</span>
+                <button
+                  className={crtEffect ? "scale-option active canvas-lock-btn" : "scale-option canvas-lock-btn"}
+                  onClick={() => { setCrtEffect((v) => !v); playClickSound(); }}
+                >
+                  <IconTv active={crtEffect} /> {crtEffect ? "CRT Enabled" : "CRT Disabled"}
+                </button>
               </div>
             )}
 
@@ -1739,6 +1808,20 @@ export default function App() {
                   />
                   <span className="volume-value">{muted ? 0 : volume}%</span>
                 </div>
+
+                <p className="settings-label" style={{ marginTop: 14 }}>{t("soundFx")}</p>
+                <span className="lobby-card-hint">{t("soundFxHint")}</span>
+                <button
+                  className={soundFxEnabled ? "scale-option active canvas-lock-btn" : "scale-option canvas-lock-btn"}
+                  onClick={() => {
+                    const next = !soundFxEnabled;
+                    setSoundEnabled(next);
+                    setSoundFxEnabledState(next);
+                    if (next) playClickSound();
+                  }}
+                >
+                  <IconSoundFx enabled={soundFxEnabled} /> {soundFxEnabled ? "Sound FX On" : "Sound FX Off"}
+                </button>
               </div>
             )}
 

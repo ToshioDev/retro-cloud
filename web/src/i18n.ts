@@ -160,6 +160,14 @@ const dict = {
   waitingForGameServer: { en: "Waiting for game server", es: "Esperando al servidor de juego" },
   receivingMedia: { en: "Receiving media", es: "Recibiendo transmisión" },
   gameServerDisconnected: { en: "Game server disconnected", es: "Servidor de juego desconectado" },
+  crtEffect: { en: "CRT Scanlines", es: "Efecto CRT Arcade" },
+  crtEffectHint: { en: "Simulate retro CRT screen scanlines and subtle glow.", es: "Simula líneas de escaneo y brillo retro CRT." },
+  soundFx: { en: "Sound FX", es: "Efectos de sonido" },
+  soundFxHint: { en: "Retro arcade audio feedback for clicks and UI events.", es: "Efectos de audio 8-bit al interactuar." },
+  copyRoomCode: { en: "Copy room code", es: "Copiar código" },
+  roomCodeCopied: { en: "Copied!", es: "¡Copiado!" },
+  quickReactions: { en: "Quick reaction", es: "Reacción rápida" },
+  featuredBadge: { en: "Cloud Streamed", es: "Nube en vivo" },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type TKey = keyof typeof dict;
