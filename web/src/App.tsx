@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { type Lang, loadLang, translate } from "./i18n";
 
 type SignalMessage = { type: string; room?: string; from?: string; payload?: any };
@@ -73,6 +73,48 @@ function IconRefresh() {
   return <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M4 4v5h5M20 20v-5h-5" /><path d="M5.5 9A7 7 0 0 1 19 8M18.5 15a7 7 0 0 1-13.5 1" />
   </svg>;
+}
+
+function TouchButton({ label, className, onPress }: { label: string; className: string; onPress: (pressed: boolean) => void }) {
+  const press = (event: ReactPointerEvent) => { event.preventDefault(); onPress(true); };
+  const release = (event: ReactPointerEvent) => { event.preventDefault(); onPress(false); };
+  return (
+    <button
+      className={className}
+      onPointerDown={press}
+      onPointerUp={release}
+      onPointerLeave={release}
+      onPointerCancel={release}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {label}
+    </button>
+  );
+}
+
+function TouchControls({ sendInput }: { sendInput: (button: Button, pressed: boolean) => void }) {
+  return (
+    <div className="touch-controls">
+      <div className="touch-dpad">
+        <TouchButton label="" className="touch-dpad-btn dpad-up" onPress={(p) => sendInput("UP", p)} />
+        <TouchButton label="" className="touch-dpad-btn dpad-down" onPress={(p) => sendInput("DOWN", p)} />
+        <TouchButton label="" className="touch-dpad-btn dpad-left" onPress={(p) => sendInput("LEFT", p)} />
+        <TouchButton label="" className="touch-dpad-btn dpad-right" onPress={(p) => sendInput("RIGHT", p)} />
+      </div>
+      <div className="touch-shoulders">
+        <TouchButton label="L" className="touch-shoulder-btn" onPress={(p) => sendInput("L", p)} />
+        <TouchButton label="R" className="touch-shoulder-btn" onPress={(p) => sendInput("R", p)} />
+      </div>
+      <div className="touch-actions">
+        <TouchButton label="B" className="touch-action-btn action-b" onPress={(p) => sendInput("B", p)} />
+        <TouchButton label="A" className="touch-action-btn action-a" onPress={(p) => sendInput("A", p)} />
+      </div>
+      <div className="touch-system">
+        <TouchButton label={"SELECT"} className="touch-system-btn" onPress={(p) => sendInput("SELECT", p)} />
+        <TouchButton label={"START"} className="touch-system-btn" onPress={(p) => sendInput("START", p)} />
+      </div>
+    </div>
+  );
 }
 
 function LangToggle({ lang, setLang }: { lang: Lang; setLang: (lang: Lang) => void }) {
@@ -720,6 +762,7 @@ export default function App() {
             />
             {mediaState !== "Receiving media" && <div className="placeholder">{translate(lang, (mediaKeys[mediaState] as any) ?? "waitingForGameServer")}</div>}
           </div>
+          <TouchControls sendInput={sendInput} />
         </div>
 
         <aside className="social-panel">

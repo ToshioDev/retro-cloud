@@ -295,18 +295,57 @@ video { image-rendering: pixelated; position: relative; z-index: 1; display: blo
 
 footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var(--font-mono); }
 
+/* On-screen touch controls — shown only on touch/coarse-pointer devices */
+.touch-controls { display: none; }
+@media (pointer: coarse) {
+  .touch-controls { display: block; position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+  .touch-dpad { position: absolute; left: 14px; bottom: 14px; width: 132px; height: 132px; pointer-events: auto; }
+  .touch-dpad-btn {
+    position: absolute; width: 44px; height: 44px; padding: 0; touch-action: none;
+    background: rgba(20,23,31,.78); border: 1px solid rgba(255,255,255,.15); border-radius: 10px; color: #fff;
+  }
+  .dpad-up { top: 0; left: 44px; }
+  .dpad-down { bottom: 0; left: 44px; }
+  .dpad-left { left: 0; top: 44px; }
+  .dpad-right { right: 0; top: 44px; }
+  .touch-shoulders { position: absolute; top: 14px; left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 14px; pointer-events: none; }
+  .touch-shoulder-btn {
+    pointer-events: auto; touch-action: none; width: 54px; height: 32px; padding: 0;
+    border-radius: 8px; background: rgba(20,23,31,.78); border: 1px solid rgba(255,255,255,.15); color: #fff; font-size: 11px; font-weight: 700;
+  }
+  .touch-actions { position: absolute; right: 14px; bottom: 14px; width: 120px; height: 92px; pointer-events: auto; }
+  .touch-action-btn {
+    position: absolute; width: 56px; height: 56px; padding: 0; touch-action: none;
+    border-radius: 50%; background: rgba(124,92,255,.38); border: 1px solid rgba(255,255,255,.25); color: #fff; font-weight: 700; font-size: 15px;
+  }
+  .action-b { left: 0; bottom: 0; }
+  .action-a { right: 0; bottom: 32px; }
+  .touch-system { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; pointer-events: auto; }
+  .touch-system-btn {
+    padding: 6px 12px; touch-action: none; font-size: 10px; font-weight: 700; border-radius: 999px;
+    background: rgba(20,23,31,.78); border: 1px solid rgba(255,255,255,.15); color: #fff;
+  }
+}
+
 @media (max-width: 900px) {
   main.in-room { padding: 0; height: auto; overflow: visible; }
   .room-layout { height: auto; }
   .player-stage { height: 70vh; }
   .social-panel { position: static; width: 100%; height: auto; border-left: none; border-top: 1px solid var(--line); }
   .chat-block { min-height: 260px; }
+  .lobby-split { grid-template-columns: 1fr; }
+  .lobby-side { position: static; }
 }
 @media (max-width: 640px) {
   .lobby-forms { grid-template-columns: 1fr; }
+  .room-grid, .game-showcase { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
 }
 @media (max-width: 520px) {
   main { padding-top: 24px; }
   .brand-header { flex-direction: column; align-items: flex-start; gap: 10px; }
   .settings-panel { width: 100%; }
+  .player-topbar.overlay-bar { flex-wrap: wrap; padding: 10px 12px; gap: 6px; }
+  .brand-mini { display: none; }
+  .lobby-tabs { width: 100%; }
+  .lobby-tab { flex: 1; text-align: center; }
 }
