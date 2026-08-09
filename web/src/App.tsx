@@ -63,6 +63,17 @@ function IconClose() {
     <path d="M6 6l12 12M18 6L6 18" />
   </svg>;
 }
+function IconFullscreen({ active }: { active: boolean }) {
+  return active ? (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 4H6a2 2 0 0 0-2 2v3M15 4h3a2 2 0 0 1 2 2v3M9 20H6a2 2 0 0 1-2-2v-3M15 20h3a2 2 0 0 0 2-2v-3" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 9V6a2 2 0 0 1 2-2h3M20 9V6a2 2 0 0 0-2-2h-3M4 15v3a2 2 0 0 0 2 2h3M20 15v3a2 2 0 0 1-2 2h-3" />
+    </svg>
+  );
+}
 function IconVolume({ muted }: { muted: boolean }) {
   return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M4 9v6h4l5 4V5L8 9H4Z" />
@@ -181,6 +192,8 @@ export default function App() {
   const [touchLayout, setTouchLayout] = useState<"standard" | "swapped">(() => (localStorage.getItem("rc_touch_layout") === "swapped" ? "swapped" : "standard"));
   const [touchSize, setTouchSize] = useState<"compact" | "large">(() => (localStorage.getItem("rc_touch_size") === "large" ? "large" : "compact"));
   const [isTouchDevice] = useState(() => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const stageWrapRef = useRef<HTMLDivElement>(null);
   const [volume, setVolume] = useState<number>(() => Number(localStorage.getItem("rc_volume") ?? "100"));
   const [muted, setMuted] = useState<boolean>(() => localStorage.getItem("rc_muted") === "1");
   const volumeRef = useRef(volume);
@@ -547,6 +560,24 @@ export default function App() {
   useEffect(() => { localStorage.setItem("rc_touch_layout", touchLayout); }, [touchLayout]);
   useEffect(() => { localStorage.setItem("rc_touch_size", touchSize); }, [touchSize]);
 
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else if (stageWrapRef.current) {
+        await stageWrapRef.current.requestFullscreen();
+      }
+    } catch (error) {
+      console.error("[FULLSCREEN] failed:", error);
+    }
+  }
+
   function sendChat() {
     const text = chatInput.trim();
     if (!text || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
@@ -864,7 +895,7 @@ export default function App() {
 
     {!inLobby && <>
       <div className="room-layout">
-        <div className="player-stage">
+        <div className="player-stage" ref={stageWrapRef}>
           <div className="player-topbar overlay-bar">
             <div className="brand brand-mini"><span className="brand-mark">◆</span><span className="brand-name">retro<em>X</em></span></div>
             <div className="latency-wrap">
@@ -907,6 +938,9 @@ export default function App() {
               </button>
             )}
             <div className="lang-toggle-desktop"><LangToggle lang={lang} setLang={setLang} /></div>
+            <button className="icon-button fullscreen-toggle" aria-label={t("fullscreen")} onClick={toggleFullscreen}>
+              <IconFullscreen active={isFullscreen} />
+            </button>
             <button className="icon-button" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <circle cx="12" cy="12" r="3.2" />

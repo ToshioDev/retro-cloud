@@ -27,6 +27,7 @@ const dict = {
   room: { en: "Room", es: "Sala" },
 
   account: { en: "Account", es: "Cuenta" },
+  fullscreen: { en: "Fullscreen", es: "Pantalla completa" },
   layout: { en: "Layout", es: "Diseño" },
   handedness: { en: "Control side", es: "Lado de los controles" },
   standard: { en: "Standard", es: "Estándar" },
