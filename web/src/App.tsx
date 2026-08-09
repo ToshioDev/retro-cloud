@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { type Lang, loadLang, translate } from "./i18n";
 
 type SignalMessage = { type: string; room?: string; from?: string; payload?: any };
-type Button = "UP" | "DOWN" | "LEFT" | "RIGHT" | "A" | "B" | "START" | "SELECT" | "L" | "R";
+type Button = "UP" | "DOWN" | "LEFT" | "RIGHT" | "A" | "B" | "X" | "Y" | "START" | "SELECT" | "L" | "R" | "L2" | "R2";
 type RosterEntry = { peerId: string; playerNumber: number; username: string };
 type ChatMessage = { username: string; playerNumber?: number; text: string; timestamp: number };
 type RomEntry = { file: string; game: "nes" | "snes" | "ps1"; size: number; owner: string | null };
@@ -34,10 +34,13 @@ const roomsUrl = `${apiBase}/rooms`;
 const romsUrl = `${apiBase}/roms`;
 const defaultRoom = import.meta.env.VITE_ROOM ?? "";
 type ActiveRoom = { room: string; peerCount: number; owner: string | null; visibility?: "public" | "private"; game?: string | null; file?: string | null };
-const buttons: Button[] = ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "L", "R", "START", "SELECT"];
+const buttons: Button[] = ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L", "R", "L2", "R2", "START", "SELECT"];
+// X/Y (SNES/PS1 top+left face buttons) and L2/R2 (PS1 shoulder triggers) only matter for consoles whose
+// cores actually read them — NES/SNES cores simply never poll those input IDs, so keeping them bound is
+// harmless there and means switching games never needs a different keymap.
 const defaultKeyBindings: Record<Button, string> = {
   UP: "ArrowUp", DOWN: "ArrowDown", LEFT: "ArrowLeft", RIGHT: "ArrowRight",
-  A: "z", B: "x", L: "q", R: "w", START: "Enter", SELECT: "Shift",
+  A: "z", B: "x", X: "a", Y: "s", L: "q", R: "w", L2: "1", R2: "2", START: "Enter", SELECT: "Shift",
 };
 
 function loadKeyBindings(): Record<Button, string> {
@@ -49,11 +52,11 @@ function loadKeyBindings(): Record<Button, string> {
   }
 }
 
-// Standard Gamepad API mapping (https://w3c.github.io/gamepad/#remapping): 0=A 1=B 4=LB 5=RB 8=Select
-// 9=Start 12-15=D-pad. Works the same for every console we stream — the emulator side only sees button
-// names over the data channel, so a bound gamepad plays PS1/NES/SNES rooms identically.
+// Standard Gamepad API mapping (https://w3c.github.io/gamepad/#remapping): 0=A 1=B 2=X 3=Y 4=LB 5=RB
+// 6=LT 7=RT 8=Select 9=Start 12-15=D-pad. Works the same for every console we stream — the emulator side
+// only sees button names over the data channel, so a bound gamepad plays PS1/NES/SNES rooms identically.
 const defaultGamepadBindings: Record<Button, number> = {
-  UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15, A: 0, B: 1, L: 4, R: 5, START: 9, SELECT: 8,
+  UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15, A: 0, B: 1, X: 2, Y: 3, L: 4, R: 5, L2: 6, R2: 7, START: 9, SELECT: 8,
 };
 
 function loadGamepadBindings(): Record<Button, number> {

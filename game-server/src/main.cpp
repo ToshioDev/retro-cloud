@@ -28,11 +28,13 @@ using json = nlohmann::json;
 namespace {
 
 constexpr unsigned kMaxPlayers = 4;
-std::atomic<bool> button_state[kMaxPlayers][12] = {};
+std::atomic<bool> button_state[kMaxPlayers][16] = {};
 
 int button_id(const std::string &button) {
     if (button == "B") return RETRO_DEVICE_ID_JOYPAD_B;
     if (button == "A") return RETRO_DEVICE_ID_JOYPAD_A;
+    if (button == "X") return RETRO_DEVICE_ID_JOYPAD_X;
+    if (button == "Y") return RETRO_DEVICE_ID_JOYPAD_Y;
     if (button == "SELECT") return RETRO_DEVICE_ID_JOYPAD_SELECT;
     if (button == "START") return RETRO_DEVICE_ID_JOYPAD_START;
     if (button == "UP") return RETRO_DEVICE_ID_JOYPAD_UP;
@@ -41,6 +43,8 @@ int button_id(const std::string &button) {
     if (button == "RIGHT") return RETRO_DEVICE_ID_JOYPAD_RIGHT;
     if (button == "L") return RETRO_DEVICE_ID_JOYPAD_L;
     if (button == "R") return RETRO_DEVICE_ID_JOYPAD_R;
+    if (button == "L2") return RETRO_DEVICE_ID_JOYPAD_L2;
+    if (button == "R2") return RETRO_DEVICE_ID_JOYPAD_R2;
     return -1;
 }
 
@@ -139,8 +143,12 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
     runtime.width = width;
     runtime.height = height;
     if (runtime.canvas_width == 0) {
-        runtime.canvas_width = std::max({runtime.av.geometry.max_width, width});
-        runtime.canvas_height = std::max({runtime.av.geometry.max_height, height});
+        // Use the core's *base* (typical gameplay) resolution rather than its max: pcsx_rearmed reports a
+        // max several times larger than what actually plays (room for hi-res menus/FMVs), and sizing the
+        // canvas to that left the real picture rendered tiny in a mostly-black frame. Any rarer frame
+        // bigger than base gets cropped to canvas size below instead of corrupting the whole stream.
+        runtime.canvas_width = runtime.av.geometry.base_width > 0 ? runtime.av.geometry.base_width : width;
+        runtime.canvas_height = runtime.av.geometry.base_height > 0 ? runtime.av.geometry.base_height : height;
     }
     const auto canvas_width = runtime.canvas_width;
     const auto canvas_height = runtime.canvas_height;
@@ -213,7 +221,7 @@ void audio_sample(int16_t, int16_t) { ++runtime.audio_samples; }
 void input_poll() {}
 
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
-    if (port >= kMaxPlayers || device != RETRO_DEVICE_JOYPAD || index != 0 || id >= 12) return 0;
+    if (port >= kMaxPlayers || device != RETRO_DEVICE_JOYPAD || index != 0 || id >= 16) return 0;
     return button_state[port][id].load() ? 1 : 0;
 }
 
