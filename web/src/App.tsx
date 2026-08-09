@@ -3,7 +3,7 @@ import { type Lang, loadLang, translate } from "./i18n";
 import { isSoundEnabled, setSoundEnabled, playClickSound, playJoinSound, playSuccessSound, playChatSound } from "./soundFx";
 
 type SignalMessage = { type: string; room?: string; from?: string; payload?: any };
-type Button = "UP" | "DOWN" | "LEFT" | "RIGHT" | "A" | "B" | "X" | "Y" | "START" | "SELECT" | "L" | "R" | "L2" | "R2";
+type Button = "UP" | "DOWN" | "LEFT" | "RIGHT" | "A" | "B" | "X" | "Y" | "START" | "SELECT" | "L" | "R" | "L2" | "R2" | "L1" | "R1" | "L3" | "R3";
 type RosterEntry = { peerId: string; playerNumber: number; username: string };
 type ChatMessage = { username: string; playerNumber?: number; text: string; timestamp: number };
 type RomEntry = { file: string; game: "nes" | "snes" | "ps1"; size: number; owner: string | null };
@@ -56,7 +56,7 @@ const CONSOLE_BUTTONS: Record<string, Button[]> = {
 };
 const defaultKeyBindings: Record<Button, string> = {
   UP: "ArrowUp", DOWN: "ArrowDown", LEFT: "ArrowLeft", RIGHT: "ArrowRight",
-  A: "z", B: "x", X: "a", Y: "s", L: "q", R: "w", L2: "1", R2: "2", START: "Enter", SELECT: "Shift",
+  A: "z", B: "x", X: "a", Y: "s", L: "q", R: "w", L2: "1", R2: "2", L1: "q", R1: "w", L3: "e", R3: "r", START: "Enter", SELECT: "Shift",
 };
 
 // Bindings are stored per console ({ nes: {...}, snes: {...}, ps1: {...} }, each a partial override of the
@@ -73,7 +73,7 @@ function loadKeyBindingsByGame(): Record<string, Partial<Record<Button, string>>
 // Standard Gamepad API mapping (https://w3c.github.io/gamepad/#remapping): 0=A 1=B 2=X 3=Y 4=LB 5=RB
 // 6=LT 7=RT 8=Select 9=Start 12-15=D-pad.
 const defaultGamepadBindings: Record<Button, number> = {
-  UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15, A: 0, B: 1, X: 2, Y: 3, L: 4, R: 5, L2: 6, R2: 7, START: 9, SELECT: 8,
+  UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15, A: 0, B: 1, X: 2, Y: 3, L: 4, R: 5, L2: 6, R2: 7, L1: 4, R1: 5, L3: 8, R3: 9, START: 9, SELECT: 8,
 };
 
 function loadGamepadBindingsByGame(): Record<string, Partial<Record<Button, number>>> {
@@ -352,6 +352,116 @@ function TouchButton({ label, className, onPress, style }: { label: string; clas
   );
 }
 
+function VirtualJoystick({ sendInput, size = 130 }: { sendInput: (button: Button, pressed: boolean) => void; size?: number }) {
+  const baseRef = useRef<HTMLDivElement>(null);
+  const [thumbPos, setThumbPos] = useState({ x: 0, y: 0 });
+  const dragging = useRef(false);
+  const offset = useRef({ x: 0, y: 0 });
+  const heldDir = useRef<Button | null>(null);
+  const radius = size / 2;
+  const thumbR = size * 0.22;
+  const deadzone = size * 0.12;
+
+  function dirFromDelta(dx: number, dy: number): Button | null {
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < deadzone) return null;
+    const angle = Math.atan2(dy, dx);
+    if (angle >= -Math.PI * 0.75 && angle < -Math.PI * 0.25) return "UP";
+    if (angle >= -Math.PI * 0.25 && angle < Math.PI * 0.25) return "RIGHT";
+    if (angle >= Math.PI * 0.25 && angle < Math.PI * 0.75) return "DOWN";
+    return "LEFT";
+  }
+
+  function clampThumb(dx: number, dy: number) {
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const maxR = radius - thumbR - 2;
+    if (dist <= maxR) return { x: dx, y: dy };
+    return { x: (dx / dist) * maxR, y: (dy / dist) * maxR };
+  }
+
+  function handleDown(e: React.PointerEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = baseRef.current;
+    if (!el) return;
+    el.setPointerCapture(e.pointerId);
+    dragging.current = true;
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    offset.current = { x: e.clientX - cx, y: e.clientY - cy };
+    const clamped = clampThumb(offset.current.x, offset.current.y);
+    setThumbPos(clamped);
+    const dir = dirFromDelta(offset.current.x, offset.current.y);
+    if (dir && dir !== heldDir.current) {
+      if (heldDir.current) sendInput(heldDir.current, false);
+      heldDir.current = dir;
+      sendInput(dir, true);
+      if (navigator.vibrate) navigator.vibrate(8);
+    }
+  }
+
+  function handleMove(e: React.PointerEvent) {
+    if (!dragging.current) return;
+    e.preventDefault();
+    const el = baseRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dx = e.clientX - cx;
+    const dy = e.clientY - cy;
+    const clamped = clampThumb(dx, dy);
+    setThumbPos(clamped);
+    const dir = dirFromDelta(dx, dy);
+    if (dir !== heldDir.current) {
+      if (heldDir.current) sendInput(heldDir.current, false);
+      if (dir) sendInput(dir, true);
+      heldDir.current = dir;
+      if (dir && navigator.vibrate) navigator.vibrate(8);
+    }
+  }
+
+  function handleUp(e: React.PointerEvent) {
+    e.preventDefault();
+    dragging.current = false;
+    setThumbPos({ x: 0, y: 0 });
+    if (heldDir.current) {
+      sendInput(heldDir.current, false);
+      heldDir.current = null;
+    }
+  }
+
+  return (
+    <div style={{ position: "absolute", left: 12, top: 12 }}>
+      <div
+        ref={baseRef}
+        className="virtual-joystick"
+        style={{ position: "absolute", width: size, height: size }}
+        onPointerDown={handleDown}
+        onPointerMove={handleMove}
+        onPointerUp={handleUp}
+        onPointerCancel={handleUp}
+        onPointerLeave={handleUp}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        <div className="joystick-base" style={{ width: size, height: size, borderRadius: "50%" }} />
+        <div
+          className="joystick-thumb"
+          style={{
+            width: thumbR * 2, height: thumbR * 2, borderRadius: "50%",
+            transform: `translate(${thumbPos.x - thumbR}px, ${thumbPos.y - thumbR}px)`,
+          }}
+        />
+      </div>
+      <div style={{ position: "absolute", top: size + 6, left: 0, display: "flex", gap: 6 }}>
+        <TouchButton label="L3" className="touch-btn touch-pill btn-l3" style={{ position: "relative", width: 56, height: 30, fontSize: 10 }} onPress={(p) => sendInput("L3", p)} />
+        <TouchButton label="R3" className="touch-btn touch-pill btn-r3" style={{ position: "relative", width: 56, height: 30, fontSize: 10 }} onPress={(p) => sendInput("R3", p)} />
+      </div>
+    </div>
+  );
+}
+
 type ControlPreset = { id: string; label: string; buttons: { id: Button; x: number; y: number; size: number; shape: "circle" | "rect" | "dpad" | "pill" }[] };
 const CONTROL_PRESETS: Record<string, ControlPreset> = {
   nes: {
@@ -395,11 +505,15 @@ const CONTROL_PRESETS: Record<string, ControlPreset> = {
       { id: "A", x: 292, y: 74, size: 50, shape: "circle" },
       { id: "SELECT", x: 80, y: 176, size: 48, shape: "pill" },
       { id: "START", x: 148, y: 176, size: 48, shape: "pill" },
+      { id: "L", x: 0, y: -10, size: 44, shape: "rect" },
+      { id: "R", x: 298, y: -10, size: 44, shape: "rect" },
+      { id: "L2", x: 0, y: -56, size: 44, shape: "rect" },
+      { id: "R2", x: 298, y: -56, size: 44, shape: "rect" },
     ],
   },
 };
 
-const PS1_SYMBOLS: Record<string, string> = { A: "✕", B: "○", Y: "△", X: "□" };
+const PS1_SYMBOLS: Record<string, string> = { A: "✕", B: "○", Y: "△", X: "□", L: "L1", R: "R1" };
 const SNES_LABELS: Record<string, string> = { A: "A", B: "B", X: "X", Y: "Y" };
 
 function getButtonLabel(btn: Button, consoleId: string): string {
@@ -408,12 +522,16 @@ function getButtonLabel(btn: Button, consoleId: string): string {
   return btn;
 }
 
-function TouchControls({ sendInput, layout, size, consoleId = "ps1", customPositions = {} }: { sendInput: (button: Button, pressed: boolean) => void; layout: "standard" | "swapped"; size: "compact" | "large"; consoleId?: string; customPositions?: Record<string, { x: number; y: number }> }) {
+function TouchControls({ sendInput, layout, size, consoleId = "ps1", customPositions = {}, ps1ControlMode = "dpad" }: { sendInput: (button: Button, pressed: boolean) => void; layout: "standard" | "swapped"; size: "compact" | "large"; consoleId?: string; customPositions?: Record<string, { x: number; y: number }>; ps1ControlMode?: "dpad" | "joystick" }) {
   const preset = CONTROL_PRESETS[consoleId] ?? CONTROL_PRESETS.ps1;
   const scale = size === "large" ? 1.15 : 1;
+  const useJoystick = consoleId === "ps1" && ps1ControlMode === "joystick";
+  const dpadIds = new Set(["UP", "DOWN", "LEFT", "RIGHT"]);
   return (
     <div className={`touch-controls layout-${layout} size-${size} console-${consoleId}`}>
+      {useJoystick && <VirtualJoystick sendInput={sendInput} size={154} />}
       {preset.buttons.map((btn) => {
+        if (useJoystick && dpadIds.has(btn.id)) return null;
         const custom = customPositions[btn.id];
         return (
           <TouchButton
@@ -431,13 +549,13 @@ function TouchControls({ sendInput, layout, size, consoleId = "ps1", customPosit
           />
         );
       })}
-      {preset.buttons.some((b) => b.id === "L") && (
+      {preset.buttons.some((b) => b.id === "L") && consoleId !== "ps1" && (
         <div className="touch-shoulders">
           <TouchButton label="L" className="touch-shoulder-btn" onPress={(p) => sendInput("L", p)} />
           <TouchButton label="R" className="touch-shoulder-btn" onPress={(p) => sendInput("R", p)} />
         </div>
       )}
-      {preset.buttons.some((b) => b.id === "L2") && (
+      {preset.buttons.some((b) => b.id === "L2") && consoleId !== "ps1" && (
         <div className="touch-shoulders-2">
           <TouchButton label="L2" className="touch-shoulder-btn" onPress={(p) => sendInput("L2", p)} />
           <TouchButton label="R2" className="touch-shoulder-btn" onPress={(p) => sendInput("R2", p)} />
@@ -447,14 +565,17 @@ function TouchControls({ sendInput, layout, size, consoleId = "ps1", customPosit
   );
 }
 
-function ControlEditor({ consoleId, customPositions, onPositionsChange, onClose, t }: {
+function ControlEditor({ consoleId, customPositions, onPositionsChange, onClose, t, ps1ControlMode = "dpad" }: {
   consoleId: string;
   customPositions: Record<string, { x: number; y: number }>;
   onPositionsChange: (positions: Record<string, { x: number; y: number }>) => void;
   onClose: () => void;
   t: (key: Parameters<typeof translate>[1]) => string;
+  ps1ControlMode?: "dpad" | "joystick";
 }) {
   const preset = CONTROL_PRESETS[consoleId] ?? CONTROL_PRESETS.ps1;
+  const useJoystick = consoleId === "ps1" && ps1ControlMode === "joystick";
+  const dpadIds = new Set(["UP", "DOWN", "LEFT", "RIGHT"]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>(() => {
@@ -524,7 +645,7 @@ function ControlEditor({ consoleId, customPositions, onPositionsChange, onClose,
         {isDpad(dragging ?? "") && (
           <div className="dpad-group-indicator" style={{ position: "absolute", left: positions["LEFT"]?.x ?? 0, top: positions["UP"]?.y ?? 0, width: (positions["RIGHT"]?.x ?? 0) - (positions["LEFT"]?.x ?? 0) + preset.buttons.find(b => b.id === "RIGHT")!.size, height: (positions["DOWN"]?.y ?? 0) - (positions["UP"]?.y ?? 0) + preset.buttons.find(b => b.id === "DOWN")!.size, borderRadius: 12 }} />
         )}
-        {preset.buttons.map((btn) => {
+        {preset.buttons.filter((btn) => !(useJoystick && dpadIds.has(btn.id))).map((btn) => {
           const pos = positions[btn.id];
           const isDraggingThis = dragging === btn.id;
           const isDpadGroup = isDpad(btn.id) && isDpad(dragging ?? "");
@@ -637,6 +758,7 @@ export default function App() {
   const [scale, setScale] = useState<string>("fit");
   const [touchLayout, setTouchLayout] = useState<"standard" | "swapped">(() => (localStorage.getItem("rc_touch_layout") === "swapped" ? "swapped" : "standard"));
   const [touchSize, setTouchSize] = useState<"compact" | "large">(() => (localStorage.getItem("rc_touch_size") === "large" ? "large" : "compact"));
+  const [ps1ControlMode, setPs1ControlMode] = useState<"dpad" | "joystick">(() => (localStorage.getItem("rc_ps1_ctrl") === "joystick" ? "joystick" : "dpad"));
   const [editingControls, setEditingControls] = useState(false);
   const [customPositions, setCustomPositions] = useState<Record<string, { x: number; y: number }>>(() => {
     try { return JSON.parse(localStorage.getItem("rc_custom_ctrl") ?? "{}"); } catch { return {}; }
@@ -1245,6 +1367,7 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem("rc_touch_layout", touchLayout); }, [touchLayout]);
   useEffect(() => { localStorage.setItem("rc_touch_size", touchSize); }, [touchSize]);
+  useEffect(() => { localStorage.setItem("rc_ps1_ctrl", ps1ControlMode); }, [ps1ControlMode]);
   useEffect(() => { localStorage.setItem("rc_custom_ctrl", JSON.stringify(customPositions)); }, [customPositions]);
 
   useEffect(() => {
@@ -2539,7 +2662,7 @@ export default function App() {
             )}
             {canvasToast && <div className="canvas-toast">{canvasToast}</div>}
           </div>
-          <TouchControls sendInput={sendInput} layout={touchLayout} size={touchSize} consoleId={activeConsole} customPositions={customPositions} />
+          <TouchControls sendInput={sendInput} layout={touchLayout} size={touchSize} consoleId={activeConsole} customPositions={customPositions} ps1ControlMode={ps1ControlMode} />
           {editingControls && (
             <ControlEditor
               consoleId={activeConsole}
@@ -2547,6 +2670,7 @@ export default function App() {
               onPositionsChange={setCustomPositions}
               onClose={() => setEditingControls(false)}
               t={t}
+              ps1ControlMode={ps1ControlMode}
             />
           )}
           <button className="mobile-panel-fab" onClick={(e) => { e.stopPropagation(); setMobilePanelOpen(true); }} aria-label={t("players")}>
@@ -2771,6 +2895,15 @@ export default function App() {
                         <button className={touchSize === "compact" ? "scale-option active" : "scale-option"} onClick={() => setTouchSize("compact")}>{t("compact")}</button>
                         <button className={touchSize === "large" ? "scale-option active" : "scale-option"} onClick={() => setTouchSize("large")}>{t("large")}</button>
                       </div>
+                      {activeConsole === "ps1" && (
+                        <>
+                          <p className="settings-label" style={{ marginTop: 6 }}>{t("ps1Input")}</p>
+                          <div className="scale-options">
+                            <button className={ps1ControlMode === "dpad" ? "scale-option active" : "scale-option"} onClick={() => setPs1ControlMode("dpad")}>十字キー</button>
+                            <button className={ps1ControlMode === "joystick" ? "scale-option active" : "scale-option"} onClick={() => setPs1ControlMode("joystick")}>アナログ</button>
+                          </div>
+                        </>
+                      )}
                       <button
                         className="edit-controls-btn"
                         onClick={() => { setEditingControls(true); setSettingsOpen(false); }}

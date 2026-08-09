@@ -923,6 +923,31 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
     position: absolute; top: calc(58px + env(safe-area-inset-top)); left: env(safe-area-inset-left); right: env(safe-area-inset-right);
     display: flex; justify-content: space-between; padding: 0 14px; pointer-events: none;
   }
+  /* Rect buttons (PS1 L/R/L2/R2 inline) */
+  .touch-rect {
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.85); border: 1.5px solid rgba(255,255,255,.2);
+    color: #fff; font-size: 11px; font-weight: 800; letter-spacing: .03em;
+  }
+  .touch-rect.pressed { background: rgba(139, 92, 246, 0.55); border-color: var(--signal); transform: scale(.92); box-shadow: 0 0 16px var(--signal-glow); }
+  .console-ps1 .btn-l, .console-ps1 .btn-r { background: rgba(139, 92, 246, 0.25); border-color: rgba(139,92,246,0.4); font-size: 12px; }
+  .console-ps1 .btn-l.pressed, .console-ps1 .btn-r.pressed { background: rgba(139,92,246,0.6); }
+  .console-ps1 .btn-l2, .console-ps1 .btn-r2 { background: rgba(100,116,139,0.25); border-color: rgba(100,116,139,0.4); font-size: 12px; }
+  .console-ps1 .btn-l2.pressed, .console-ps1 .btn-r2.pressed { background: rgba(100,116,139,0.6); }
+  /* Virtual joystick */
+  .virtual-joystick { touch-action: none; pointer-events: auto; z-index: 2; }
+  .joystick-base {
+    position: absolute; background: rgba(15, 23, 42, 0.7); border: 2px solid rgba(255,255,255,.15);
+    backdrop-filter: blur(8px);
+  }
+  .joystick-thumb {
+    position: absolute; top: 50%; left: 50%; background: rgba(139, 92, 246, 0.6);
+    border: 2px solid rgba(255,255,255,.35); box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+    transition: background .1s;
+  }
+  .joystick-thumb:active, .virtual-joystick:active .joystick-thumb {
+    background: rgba(0, 168, 255, 0.7); border-color: var(--cyan); box-shadow: 0 0 16px var(--cyan-glow);
+  }
   /* Console-specific button colors */
   .console-ps1 .btn-a { background: rgba(0, 168, 255, 0.35); border-color: rgba(0, 168, 255, 0.5); }
   .console-ps1 .btn-a.pressed { background: rgba(0, 168, 255, 0.8); }

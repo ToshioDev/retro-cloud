@@ -121,6 +121,7 @@ const dict = {
   audio: { en: "Audio", es: "Audio" },
   controls: { en: "Controls", es: "Controles" },
   editControls: { en: "Customize controls", es: "Personalizar controles" },
+  ps1Input: { en: "Input mode", es: "Modo de entrada" },
   resetControls: { en: "Reset to default", es: "Restaurar predeterminado" },
   dragToReposition: { en: "Drag buttons to reposition", es: "Arrastra los botones para reubicarlos" },
   touchDragHint: { en: "Drag each button to your preferred position, then tap Save", es: "Arrastra cada botón a tu posición preferida, luego toca Guardar" },
