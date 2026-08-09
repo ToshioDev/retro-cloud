@@ -79,6 +79,7 @@ struct Runtime {
     std::string signaling_room;
     std::string video_output_path;
     unsigned video_bitrate_kbps = 2000;
+    bool low_bandwidth = false;
     std::string own_peer_id;
     std::mutex peer_actions_mutex;
     std::vector<std::function<void()>> pending_peer_actions;
@@ -210,10 +211,12 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
     // widescreen monitor looks soft even with pixelated rendering. Nearest-neighbor upscaling here instead
     // means the encoder is actually working with — and the client actually receives — more real pixels,
     // while staying perfectly crisp (each source pixel becomes a clean block, never blurred/interpolated).
-    // Skipped for PS1: its CPU-bound 3D emulation is already the heaviest thing running in this container
-    // (shared with x264enc, itself CPU-only — no GPU passthrough on this host), so it doesn't get to also
-    // pay for 4x the encoder pixel count. The browser's CSS scaling still fills the screen, just softer.
-    const unsigned kUpscaleFactor = runtime.game_id == "ps1" ? 1 : 2;
+    // Skipped for PS1 (its CPU-bound 3D emulation is already the heaviest thing running in this container,
+    // shared with x264enc, itself CPU-only — no GPU passthrough on this host) and skipped whenever the
+    // room was created in low-bandwidth mode: fewer encoded pixels at the same bitrate means less
+    // compression artifacting for a viewer on a slow connection. The browser's CSS scaling still fills the
+    // screen either way, just softer.
+    const unsigned kUpscaleFactor = (runtime.game_id == "ps1" || runtime.low_bandwidth) ? 1 : 2;
     const auto scaled_width = canvas_width * kUpscaleFactor;
     const auto scaled_height = canvas_height * kUpscaleFactor;
     runtime.framebuffer_scaled.resize(static_cast<std::size_t>(scaled_width) * scaled_height * 4);
@@ -349,9 +352,12 @@ int main() {
         const std::uint64_t frame_dump_frame = static_cast<std::uint64_t>(std::stoull(env_or("FRAME_DUMP_FRAME", "1")));
         const std::string frame_dump_path = env_or("FRAME_DUMP_PATH", "");
         runtime.video_output_path = env_or("VIDEO_OUTPUT_PATH", "");
-        // A bit higher than before: the stream is now encoded at 2x the core's native resolution (see the
-        // upscale in video_refresh), so there are more real pixels to carry for the same visual quality.
-        runtime.video_bitrate_kbps = bitrate_kbps(env_or("VIDEO_BITRATE", "3M"));
+        // 1.5Mbps default: retro pixel-art content (flat colors, small motion deltas) encodes far more
+        // efficiently than camera/screen-share video, so this still looks clean while leaving headroom
+        // for viewers well under 20Mbps. The room host can pick a lower explicit tier at creation time
+        // (signaling passes VIDEO_BITRATE/LOW_BANDWIDTH through) for known-bad connections.
+        runtime.video_bitrate_kbps = bitrate_kbps(env_or("VIDEO_BITRATE", "1500K"));
+        runtime.low_bandwidth = env_or("LOW_BANDWIDTH", "0") == "1";
         runtime.webrtc_debug = env_or("WEBRTC_DEBUG", "0") == "1";
         runtime.signaling_url = env_or("SIGNALING_URL", "ws://signaling:8080/signaling");
         runtime.system_directory = env_or("SYSTEM_DIRECTORY", "/system");

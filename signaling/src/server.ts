@@ -168,7 +168,13 @@ async function resolveGameServerImage(): Promise<string> {
   return tag;
 }
 
-async function spawnGameServer(game: string, romPath: string, owner: string, visibility: "public" | "private", file: string): Promise<string> {
+// Bitrate is baked into the room's GStreamer pipeline once at container start and never renegotiated —
+// there's no per-peer bandwidth estimation (see webrtc_pipeline.cpp), so the host picks a tier for the
+// whole room up front. "low" also skips the 2x pixel upscale (see game-server's LOW_BANDWIDTH), which
+// roughly halves the pixels the encoder has to spend bits on for the same visual clarity.
+const videoBitrateByTier: Record<string, string> = { high: "2500K", medium: "1500K", low: "700K" };
+
+async function spawnGameServer(game: string, romPath: string, owner: string, visibility: "public" | "private", file: string, bandwidth: string): Promise<string> {
   if (!docker) throw new Error("room creation is disabled: ROMS_DIR is not configured on the signaling service");
   if (game === "ps1" && !(await hasPs1Bios())) {
     throw new Error("PS1 needs a BIOS file uploaded first (see the BIOS section in your profile)");
@@ -181,7 +187,8 @@ async function spawnGameServer(game: string, romPath: string, owner: string, vis
   // especially — CPU-bound emulation plus CPU-bound x264 encoding) can spin unbounded, and an orphaned
   // container (see reconcileOrphanedGameServers) left the whole VPS unresponsive for every user. PS1 gets
   // a bit more headroom than NES/SNES since 3D emulation is meaningfully heavier than 2D.
-  const cpuCores = game === "ps1" ? 2 : 1;
+  const cpuCores = game === "ps1" ? 3 : 1;
+  const videoBitrate = videoBitrateByTier[bandwidth] ?? videoBitrateByTier.medium;
   const container = await docker.createContainer({
     Image: image,
     Env: [
@@ -191,6 +198,8 @@ async function spawnGameServer(game: string, romPath: string, owner: string, vis
       `SIGNALING_URL=${signalingUrlForGameServer}`,
       `SIGNALING_ROOM=${room}`,
       `PUBLIC_IP=${publicIp}`,
+      `VIDEO_BITRATE=${videoBitrate}`,
+      `LOW_BANDWIDTH=${bandwidth === "low" ? "1" : "0"}`,
     ],
     HostConfig: {
       Binds: binds,
@@ -748,14 +757,15 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
       response.end(JSON.stringify({ error: "authentication required" }));
       return;
     }
-    readJsonBody<{ file?: string; visibility?: string }>(request)
+    readJsonBody<{ file?: string; visibility?: string; bandwidth?: string }>(request)
       .then(async (body) => {
         const roms = await listRoms(username);
         const rom = roms.find((entry) => entry.file === body.file) ?? roms[0];
         if (!rom) throw new Error("no ROMs available: upload one first");
         const visibility = body.visibility === "private" ? "private" : "public";
+        const bandwidth = ["high", "medium", "low"].includes(body.bandwidth ?? "") ? body.bandwidth! : "medium";
         const romPath = `/roms/${rom.file}`;
-        const room = await spawnGameServer(rom.game, romPath, username, visibility, rom.file);
+        const room = await spawnGameServer(rom.game, romPath, username, visibility, rom.file, bandwidth);
         response.writeHead(201, { "content-type": "application/json" });
         response.end(JSON.stringify({ room, game: rom.game, romPath, owner: username, visibility }));
       })

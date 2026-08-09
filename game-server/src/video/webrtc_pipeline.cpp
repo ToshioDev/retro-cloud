@@ -136,8 +136,11 @@ void WebRtcPipeline::start(unsigned width, unsigned height, double fps, unsigned
         "videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=ultrafast threads=2 bitrate=" + std::to_string(bitrate_kbps) +
         " key-int-max=60 bframes=0 ! h264parse config-interval=1 ! video/x-h264,stream-format=byte-stream,alignment=au ! rtph264pay config-interval=1 pt=96 ! "
         "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 ! tee name=video_tee allow-not-linked=true "
+        // opusenc otherwise defaults to a much higher VBR target than game audio (chiptune/simple mixes,
+        // usually mono or near-mono source material) actually needs; explicit low bitrate saves real
+        // bandwidth for every viewer at no audible cost, and drops further on the low-bandwidth video tier.
         "appsrc name=audio_source is-live=true format=time do-timestamp=false block=false max-buffers=8 leaky-type=downstream ! "
-        "audioconvert ! audioresample ! audio/x-raw,rate=48000 ! opusenc ! rtpopuspay pt=97 ! "
+        "audioconvert ! audioresample ! audio/x-raw,rate=48000 ! opusenc bitrate=" + std::to_string(bitrate_kbps <= 800 ? 24000 : 40000) + " ! rtpopuspay pt=97 ! "
         "application/x-rtp,media=audio,encoding-name=OPUS,payload=97,clock-rate=48000 ! tee name=audio_tee allow-not-linked=true";
     GError *error = nullptr;
     pipeline_ = gst_parse_launch(description.c_str(), &error);

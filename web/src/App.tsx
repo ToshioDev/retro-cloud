@@ -719,6 +719,7 @@ export default function App() {
   const [biosUploading, setBiosUploading] = useState(false);
   const [biosError, setBiosError] = useState("");
   const [newRoomVisibility, setNewRoomVisibility] = useState<"public" | "private">("public");
+  const [newRoomBandwidth, setNewRoomBandwidth] = useState<"high" | "medium" | "low">("medium");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -1352,7 +1353,7 @@ export default function App() {
       const response = await fetch(roomsUrl, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ file: targetFile, visibility: newRoomVisibility }),
+        body: JSON.stringify({ file: targetFile, visibility: newRoomVisibility, bandwidth: newRoomBandwidth }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
@@ -2671,6 +2672,13 @@ export default function App() {
               <button className={newRoomVisibility === "public" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("public")}><IconGlobe /> {t("public")}</button>
               <button className={newRoomVisibility === "private" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("private")}><IconLock /> {t("private")}</button>
             </div>
+            <p className="form-label" style={{ marginTop: 4 }}>{t("connectionQuality")}</p>
+            <div className="visibility-toggle" role="group" aria-label={t("connectionQuality")}>
+              <button className={newRoomBandwidth === "high" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomBandwidth("high")}>{t("bandwidthHigh")}</button>
+              <button className={newRoomBandwidth === "medium" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomBandwidth("medium")}>{t("bandwidthMedium")}</button>
+              <button className={newRoomBandwidth === "low" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomBandwidth("low")}>{t("bandwidthLow")}</button>
+            </div>
+            <span className="lobby-card-hint">{t("bandwidthHint")}</span>
             <button
               className="btn-primary game-modal-create"
               onClick={() => { setSelectedRom(gameModalRom.file); void createRoom(gameModalRom.file); }}
