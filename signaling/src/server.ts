@@ -315,6 +315,66 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     }
     return;
   }
+  if (request.method === "POST" && request.url === "/roms/share") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const body = await readJsonBody<{ friend: string; romFile: string }>(request);
+    if (!body.friend || !body.romFile) {
+      response.writeHead(400, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "friend and romFile required" }));
+      return;
+    }
+    const owners = await loadRomOwners();
+    if (owners[body.romFile] !== username) {
+      response.writeHead(403, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "you can only share ROMs you uploaded" }));
+      return;
+    }
+    await auth.shareRom(username, body.friend, body.romFile);
+    response.writeHead(201, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ok: true }));
+    return;
+  }
+  if (request.method === "DELETE" && request.url === "/roms/share") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const body = await readJsonBody<{ friend: string; romFile: string }>(request);
+    if (!body.friend || !body.romFile) {
+      response.writeHead(400, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "friend and romFile required" }));
+      return;
+    }
+    await auth.unshareRom(username, body.friend, body.romFile);
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+  if (request.method === "GET" && request.url === "/roms/shared") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const shared = await auth.getSharedRoms(username);
+    const roms = await listRoms(username);
+    const romMap = new Map(roms.map((r) => [r.file, r]));
+    const enriched = shared.map((s) => ({
+      ...s,
+      rom: romMap.get(s.rom_file) ?? null,
+    }));
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ shared: enriched }));
+    return;
+  }
   if (request.method === "POST" && (request.url === "/roms" || request.url?.startsWith("/roms?"))) {
     const username = await auth.usernameForToken(bearerToken(request));
     if (!username) {

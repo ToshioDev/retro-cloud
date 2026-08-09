@@ -104,6 +104,13 @@ const dict = {
   unowned: { en: "unowned", es: "sin dueño" },
   playing: { en: "playing", es: "jugando" },
   joinRoomCta: { en: "Join room →", es: "Unirse →" },
+  shareRom: { en: "Share with friend", es: "Compartir con amigo" },
+  unshareRom: { en: "Stop sharing", es: "Dejar de compartir" },
+  sharedWithMe: { en: "Shared with me", es: "Compartido conmigo" },
+  sharedByMe: { en: "Shared by me", es: "Compartidos por mí" },
+  noSharedRoms: { en: "No shared ROMs yet", es: "Sin ROMs compartidos aún" },
+  sharedRomFrom: { en: "Shared by", es: "Compartido por" },
+  shareWith: { en: "Share with", es: "Compartir con" },
 
   byog: { en: "Bring your own games", es: "Trae tus propios juegos" },
   searchGames: { en: "Search games…", es: "Buscar juegos…" },

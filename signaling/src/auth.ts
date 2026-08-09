@@ -37,6 +37,13 @@ const ready = pool.query(`
   ALTER TABLE messages ADD COLUMN IF NOT EXISTS read boolean NOT NULL DEFAULT false;
   CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages (sender, receiver, created_at);
   CREATE INDEX IF NOT EXISTS idx_messages_receiver_unread ON messages (receiver, created_at) WHERE NOT read;
+  CREATE TABLE IF NOT EXISTS shared_roms (
+    owner text NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    friend text NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+    rom_file text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (owner, friend, rom_file)
+  );
 `).catch((error) => {
   console.error("[AUTH] failed to initialize database schema:", error instanceof Error ? error.message : error);
   throw error;
@@ -281,4 +288,29 @@ export async function getUnreadCount(username: string): Promise<number> {
     [username],
   );
   return parseInt(result.rows[0]?.cnt ?? "0", 10);
+}
+
+export async function shareRom(owner: string, friend: string, romFile: string): Promise<void> {
+  await ready;
+  await pool.query(
+    "INSERT INTO shared_roms (owner, friend, rom_file) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+    [owner, friend, romFile],
+  );
+}
+
+export async function unshareRom(owner: string, friend: string, romFile: string): Promise<void> {
+  await ready;
+  await pool.query(
+    "DELETE FROM shared_roms WHERE owner = $1 AND friend = $2 AND rom_file = $3",
+    [owner, friend, romFile],
+  );
+}
+
+export async function getSharedRoms(username: string): Promise<Array<{ owner: string; friend: string; rom_file: string; created_at: string }>> {
+  await ready;
+  const result = await pool.query(
+    "SELECT owner, friend, rom_file, created_at::text FROM shared_roms WHERE owner = $1 OR friend = $1 ORDER BY created_at DESC",
+    [username],
+  );
+  return result.rows;
 }

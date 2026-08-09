@@ -900,9 +900,42 @@ export default function App() {
     await refreshRoms();
   }
 
+  const [sharedRoms, setSharedRoms] = useState<Array<{ owner: string; friend: string; rom_file: string; rom: RomEntry | null }>>([]);
+  const [shareModalRom, setShareModalRom] = useState<RomEntry | null>(null);
+
+  async function refreshSharedRoms() {
+    if (!authToken) return;
+    try {
+      const res = await fetch(`${apiBase}/roms/shared`, { headers: { authorization: `Bearer ${authToken}` } });
+      const data = await res.json() as { shared: Array<{ owner: string; friend: string; rom_file: string; rom: RomEntry | null }> };
+      setSharedRoms(data.shared);
+    } catch { setSharedRoms([]); }
+  }
+
+  async function shareRom(friend: string, romFile: string) {
+    if (!authToken) return;
+    await fetch(`${apiBase}/roms/share`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ friend, romFile }),
+    });
+    await refreshSharedRoms();
+  }
+
+  async function unshareRom(friend: string, romFile: string) {
+    if (!authToken) return;
+    await fetch(`${apiBase}/roms/share`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ friend, romFile }),
+    });
+    await refreshSharedRoms();
+  }
+
   useEffect(() => {
     if (status !== "Disconnected") return;
     void refreshRoms();
+    void refreshSharedRoms();
   }, [status, authToken]);
 
   async function uploadRom(file: File) {
@@ -2194,13 +2227,24 @@ export default function App() {
                       )}
                       <div className="netflix-card-overlay">
                         {rom.owner === authUsername && (
-                          <button
-                            className="game-card-delete"
-                            aria-label={t("deleteRom")}
-                            onClick={(event) => { event.stopPropagation(); void deleteRom(rom.file); }}
-                          >
-                            <IconClose />
-                          </button>
+                          <>
+                            <button
+                              className="game-card-delete"
+                              aria-label={t("shareRom")}
+                              title={t("shareRom")}
+                              onClick={(event) => { event.stopPropagation(); setShareModalRom(rom); }}
+                              style={{ right: 36 }}
+                            >
+                              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></svg>
+                            </button>
+                            <button
+                              className="game-card-delete"
+                              aria-label={t("deleteRom")}
+                              onClick={(event) => { event.stopPropagation(); void deleteRom(rom.file); }}
+                            >
+                              <IconClose />
+                            </button>
+                          </>
                         )}
                         <h4 className="netflix-card-title">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</h4>
                         <p className="netflix-card-sub">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
@@ -2211,6 +2255,40 @@ export default function App() {
               </div>
             );
           })()}
+        </div>
+
+        {/* Shared ROMs */}
+        <div className="jam-section">
+          <h3 className="netflix-row-title">🤝 {t("sharedWithMe")}</h3>
+          {sharedRoms.filter((s) => s.friend === authUsername && s.rom).length === 0 ? (
+            <div className="featured-empty-banner">
+              <span className="featured-empty-icon">📭</span>
+              <h3 className="featured-empty-title">{t("noSharedRoms")}</h3>
+            </div>
+          ) : (
+            <div className="jam-featured-grid">
+              {sharedRoms.filter((s) => s.friend === authUsername && s.rom).map((s) => {
+                const rom = s.rom!;
+                return (
+                  <div
+                    key={`${s.owner}-${s.rom_file}`}
+                    className="jam-featured-card"
+                    onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
+                  >
+                    <div className="jam-featured-banner">
+                      <div className="jam-featured-banner-bg" style={{ background: CONSOLES.find(c => c.id === rom.game)?.gradient ?? "linear-gradient(135deg, #8b5cf6, #0f172a)" }} />
+                      <div className="jam-featured-overlay" />
+                    </div>
+                    <div className="jam-featured-content">
+                      <h4 className="jam-featured-title">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</h4>
+                      <p className="jam-featured-sub">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
+                      <p className="jam-featured-sub" style={{ marginTop: 2, color: "var(--emerald)" }}>👤 {t("sharedRomFrom")} {s.owner}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Upload ROM Button */}
@@ -2537,6 +2615,43 @@ export default function App() {
       </section>
     )}
 
+    {inLobby && shareModalRom && (
+      <div className="settings-backdrop email-backdrop" onClick={() => setShareModalRom(null)}>
+        <div className="email-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
+          <div className="email-dialog-icon">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></svg>
+          </div>
+          <h2 className="email-dialog-title">{t("shareRom")}</h2>
+          <p className="email-dialog-sub">{shareModalRom.file}</p>
+          {friends.friends.length === 0 ? (
+            <p className="email-dialog-sub">{t("noFriendsYet")}</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+              {friends.friends.map((friend) => {
+                const isShared = sharedRoms.some((s) => s.owner === authUsername && s.friend === friend && s.rom_file === shareModalRom.file);
+                return (
+                  <div key={friend} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "rgba(255,255,255,.04)", borderRadius: 10, border: "1px solid rgba(255,255,255,.06)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span className="roster-avatar small">{friend.slice(0, 1).toUpperCase()}</span>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: "var(--paper)" }}>{friend}</span>
+                    </div>
+                    <button
+                      className={isShared ? "btn-danger" : "btn-primary"}
+                      style={{ padding: "6px 14px", fontSize: 12, borderRadius: 8 }}
+                      onClick={() => isShared ? void unshareRom(friend, shareModalRom.file) : void shareRom(friend, shareModalRom.file)}
+                    >
+                      {isShared ? t("unshareRom") : t("shareRom")}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <button className="email-skip-btn" onClick={() => setShareModalRom(null)} style={{ marginTop: 12 }}>{t("cancel")}</button>
+        </div>
+      </div>
+    )}
+
     {inLobby && gameModalRom && (
       <div className="settings-backdrop game-modal-backdrop" onClick={() => setGameModalRom(null)}>
         <div className="game-modal" onClick={(event) => event.stopPropagation()}>
@@ -2729,25 +2844,27 @@ export default function App() {
                 <path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.5-2.4 1a7.7 7.7 0 0 0-1.7-1L15 3h-4l-.3 2.3a7.7 7.7 0 0 0-1.7 1l-2.4-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7.7 7.7 0 0 0 1.7 1L9 21h4l.3-2.3a7.7 7.7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5Z" />
               </svg>
             </button>
-            <div className="topbar-right-group topbar-desktop-only">
-              <LangToggle lang={lang} setLang={setLang} />
-              <button
-                className={`icon-button theme-toggle`}
-                aria-label={theme === "dark" ? "Light theme" : "Dark theme"}
-                title={theme === "dark" ? t("lightTheme") : t("darkTheme")}
-                onClick={() => setTheme((v) => v === "dark" ? "light" : "dark")}
-              >
-                {theme === "dark" ? (
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                  </svg>
-                )}
-              </button>
-            </div>
+            {inLobby && (
+              <div className="topbar-right-group topbar-desktop-only">
+                <LangToggle lang={lang} setLang={setLang} />
+                <button
+                  className={`icon-button theme-toggle`}
+                  aria-label={theme === "dark" ? "Light theme" : "Dark theme"}
+                  title={theme === "dark" ? t("lightTheme") : t("darkTheme")}
+                  onClick={() => setTheme((v) => v === "dark" ? "light" : "dark")}
+                >
+                  {theme === "dark" ? (
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            )}
             <div className="overflow-wrap topbar-mobile-only">
               <button className="icon-button overflow-btn" aria-label="Menu" onClick={() => setOverflowOpen((v) => !v)}>
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
