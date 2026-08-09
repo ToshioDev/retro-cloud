@@ -441,6 +441,8 @@ export default function App() {
   const [pinnedRoms, setPinnedRoms] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("rc_pinned_roms") ?? "[]"); } catch { return []; }
   });
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadCustomName, setUploadCustomName] = useState("");
   const togglePinRom = (file: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     playClickSound();
@@ -1396,74 +1398,56 @@ export default function App() {
           </div>
         </div>
 
-        {/* Featured Banner Showcase */}
+        {/* Featured / Pinned ROMs */}
         <div className="jam-section">
-          <div className="jam-featured-grid">
-            {FEATURED_GAMES.map((game) => (
-              <div
-                key={game.id}
-                className="jam-featured-card"
-                onClick={() => {
-                  playClickSound();
-                  const matchingRom = roms.find(r => r.file.toLowerCase().includes(game.id) || r.game === game.game);
-                  if (matchingRom) { setSelectedRom(matchingRom.file); setGameModalRom(matchingRom); }
-                  else if (roms.length > 0) { setSelectedRom(roms[0].file); setGameModalRom(roms[0]); }
-                }}
-              >
-                <div className="jam-featured-banner">
-                  <div className="jam-featured-banner-bg" style={{ background: game.bg }} />
-                  <div className="jam-featured-overlay" />
-                  <span className="jam-player-badge">👤 {game.players || 1}</span>
-                  <div className="jam-featured-content">
-                    <h3 className="jam-featured-title">{game.title}</h3>
-                    <p className="jam-featured-desc">{game.desc}</p>
-                  </div>
-                </div>
-                <div className="jam-featured-footer">
-                  <div className="jam-tags-list">
-                    {game.tags.map((tag) => <span key={tag} className="jam-tag">{tag}</span>)}
-                  </div>
-                  <span className="jam-maxp">{game.maxPlayers}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Netflix Row 1: Mis Pines y Destacados 📌 */}
-        {pinnedRoms.length > 0 && (
-          <div className="netflix-row">
-            <h3 className="netflix-row-title">Mis Pines / Destacados 📌</h3>
-            <div className="netflix-row-scroll">
-              {roms.filter(r => pinnedRoms.includes(r.file)).map((rom) => {
-                const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
-                return (
-                  <div
-                    key={rom.file}
-                    className="netflix-card"
-                    onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
-                  >
-                    <div className={`netflix-card-cover console-${rom.game}`} />
-                    <button
-                      className="pin-btn pinned"
-                      title="Desfijar de Mis Pines"
-                      onClick={(e) => togglePinRom(rom.file, e)}
-                    >
-                      📌
-                    </button>
-                    {roomsForGame.length > 0 && (
-                      <span className="poster-live-badge"><span className="live-pulse" /> {roomsForGame.length}</span>
-                    )}
-                    <div className="netflix-card-overlay">
-                      <h4 className="netflix-card-title">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</h4>
-                      <p className="netflix-card-sub">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
-                    </div>
-                  </div>
-                );
-              })}
+          {pinnedRoms.length === 0 ? (
+            <div className="featured-empty-banner">
+              <span className="featured-empty-icon">⭐</span>
+              <h3 className="featured-empty-title">{t("featuredEmptyTitle")}</h3>
+              <p className="featured-empty-desc">{t("featuredEmptyDesc")}</p>
             </div>
-          </div>
-        )}
+          ) : (
+            <>
+              <h3 className="netflix-row-title">{t("featuredTitle")}</h3>
+              <div className="jam-featured-grid">
+                {roms.filter(r => pinnedRoms.includes(r.file)).map((rom) => {
+                  const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
+                  const bgColors: Record<string, string> = {
+                    nes: "linear-gradient(135deg, #a55eea, #0f172a)",
+                    snes: "linear-gradient(135deg, #8b5cf6, #0f172a)",
+                    ps1: "linear-gradient(135deg, #00a8ff, #0f172a)",
+                  };
+                  return (
+                    <div
+                      key={rom.file}
+                      className="jam-featured-card"
+                      onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
+                    >
+                      <div className="jam-featured-banner">
+                        <div className="jam-featured-banner-bg" style={{ background: bgColors[rom.game] ?? bgColors.ps1 }} />
+                        <div className="jam-featured-overlay" />
+                        <button
+                          className="pin-btn pinned featured-pin"
+                          title="Desfijar de Destacados"
+                          onClick={(e) => togglePinRom(rom.file, e)}
+                        >
+                          ⭐
+                        </button>
+                        {roomsForGame.length > 0 && (
+                          <span className="jam-player-badge"><span className="live-pulse" /> {roomsForGame.length} {t("playing")}</span>
+                        )}
+                        <div className="jam-featured-content">
+                          <h3 className="jam-featured-title">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</h3>
+                          <p className="jam-featured-desc">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
 
         {/* Netflix Row 2: Consolas y Emuladores 🕹️ */}
         <div className="netflix-row">
@@ -1662,42 +1646,16 @@ export default function App() {
           })()}
         </div>
 
-        {/* Upload ROM Dropzone Card */}
+        {/* Upload ROM Button */}
         <div className="lobby-card catalog-upload-card">
-          <p className="form-label">{t("uploadRom")}</p>
-          <span className="lobby-card-hint">
-            {catalogConsole !== "all" && UPLOAD_INFO[catalogConsole]
-              ? `${UPLOAD_INFO[catalogConsole].label}, up to ${UPLOAD_INFO[catalogConsole].maxMB} MB`
-              : t("uploadHint")}
-          </span>
-          <label
-            className={`upload-drop${dragActive ? " drag-active" : ""}${uploading ? " uploading" : ""}${uploadDone ? " upload-done" : ""}`}
-            onDragOver={(event) => { event.preventDefault(); if (!uploading) setDragActive(true); }}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={(event) => {
-              event.preventDefault();
-              setDragActive(false);
-              const file = event.dataTransfer.files?.[0];
-              if (file && !uploading) void uploadRom(file);
-            }}
-          >
-            <input
-              type="file"
-              accept={catalogConsole !== "all" && UPLOAD_INFO[catalogConsole] ? UPLOAD_INFO[catalogConsole].exts.join(",") : ".nes,.sfc,.smc,.bin,.iso,.img,.pbp,.chd"}
-              disabled={uploading || !authToken}
-              onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadRom(file); event.target.value = ""; }}
-              aria-label={t("uploadRom")}
-            />
-            {uploading ? (
-              <div className="upload-progress">
-                <div className="upload-progress-track"><div className="upload-progress-fill" style={{ width: `${uploadProgress}%` }} /></div>
-                <span className="upload-progress-pct">{uploadProgress}%</span>
-              </div>
-            ) : (
-              <span>{uploadDone ? `✓ ${t("uploadDone")}` : t("chooseFileDrop")}</span>
-            )}
-          </label>
-          {uploadError && <p className="form-error">{uploadError}</p>}
+          <button className="upload-rom-btn" onClick={() => setUploadModalOpen(true)}>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+            <span>{t("uploadRom")}</span>
+          </button>
         </div>
 
         {ps1BiosReady === false && (
@@ -1932,6 +1890,70 @@ export default function App() {
                 </ul>
               );
             })()}
+          </div>
+        </div>
+      </div>
+    )}
+
+    {inLobby && uploadModalOpen && (
+      <div className="settings-backdrop game-modal-backdrop" onClick={() => { setUploadModalOpen(false); setUploadCustomName(""); setUploadError(""); }}>
+        <div className="game-modal upload-modal" onClick={(event) => event.stopPropagation()}>
+          <div className="game-modal-hero upload-modal-hero">
+            <button className="icon-button game-modal-close" aria-label="Close" onClick={() => { setUploadModalOpen(false); setUploadCustomName(""); setUploadError(""); }}><IconClose /></button>
+            <span className="game-modal-glyph">📤</span>
+            <h2 className="game-modal-title">{t("uploadRom")}</h2>
+          </div>
+
+          <div className="game-modal-body">
+            <div className="upload-modal-info">
+              <p className="form-label">{t("uploadFormats")}</p>
+              <div className="upload-modal-consoles">
+                <div className="upload-console-chip"><span className="chip-label">NES</span><span className="chip-formats">.nes (max 8 MB)</span></div>
+                <div className="upload-console-chip"><span className="chip-label">SNES</span><span className="chip-formats">.sfc, .smc (max 8 MB)</span></div>
+                <div className="upload-console-chip"><span className="chip-label">PS1</span><span className="chip-formats">.bin, .iso, .img, .pbp, .chd (max 700 MB)</span></div>
+              </div>
+            </div>
+
+            <div className="upload-modal-name">
+              <label className="form-label" htmlFor="rom-custom-name">{t("customName")}</label>
+              <input
+                id="rom-custom-name"
+                className="field"
+                value={uploadCustomName}
+                onChange={(e) => setUploadCustomName(e.target.value)}
+                placeholder={t("customNamePlaceholder")}
+                aria-label={t("customName")}
+              />
+            </div>
+
+            <label
+              className={`upload-drop upload-modal-drop${dragActive ? " drag-active" : ""}${uploading ? " uploading" : ""}${uploadDone ? " upload-done" : ""}`}
+              onDragOver={(event) => { event.preventDefault(); if (!uploading) setDragActive(true); }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragActive(false);
+                const file = event.dataTransfer.files?.[0];
+                if (file && !uploading) void uploadRom(file);
+              }}
+            >
+              <input
+                type="file"
+                accept=".nes,.sfc,.smc,.bin,.iso,.img,.pbp,.chd"
+                disabled={uploading || !authToken}
+                onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadRom(file); event.target.value = ""; }}
+                aria-label={t("uploadRom")}
+              />
+              {uploading ? (
+                <div className="upload-progress">
+                  <div className="upload-progress-track"><div className="upload-progress-fill" style={{ width: `${uploadProgress}%` }} /></div>
+                  <span className="upload-progress-pct">{uploadProgress}%</span>
+                </div>
+              ) : (
+                <span>{uploadDone ? `✓ ${t("uploadDone")}` : t("chooseFileDrop")}</span>
+              )}
+            </label>
+            {uploadError && <p className="form-error">{uploadError}</p>}
           </div>
         </div>
       </div>
