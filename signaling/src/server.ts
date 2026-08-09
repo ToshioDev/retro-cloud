@@ -8,7 +8,7 @@ import Docker from "dockerode";
 import * as auth from "./auth.js";
 
 type SignalMessage = {
-  type: "join" | "offer" | "answer" | "candidate" | "leave" | "chat";
+  type: "join" | "offer" | "answer" | "candidate" | "leave" | "chat" | "closed";
   room?: string;
   role?: string;
   username?: string;
@@ -277,6 +277,31 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
         response.writeHead(500, { "content-type": "application/json" });
         response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to create room" }));
       });
+    return;
+  }
+  if (request.method === "DELETE" && request.url?.startsWith("/rooms/")) {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const room = decodeURIComponent(request.url.slice("/rooms/".length).split("?")[0]);
+    const owner = roomOwners.get(room);
+    if (!owner) {
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "room not found" }));
+      return;
+    }
+    if (owner !== username) {
+      response.writeHead(403, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "only the room owner can close this room" }));
+      return;
+    }
+    broadcastAll(room, { type: "closed", room, payload: { reason: "owner closed the room" } });
+    await teardownRoom(room);
+    response.writeHead(204);
+    response.end();
     return;
   }
   response.writeHead(404);

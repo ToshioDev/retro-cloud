@@ -160,6 +160,9 @@ button:disabled { cursor: progress; opacity: .55; }
 .player-pill.muted { color: var(--mist); font-family: var(--font-mono); }
 .icon-button { margin-left: auto; width: 36px; height: 36px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--mist); }
 .icon-button:hover { color: var(--signal); }
+.btn-danger { padding: 7px 14px; border-radius: 999px; background: transparent; border: 1px solid var(--ember); color: var(--ember); font-size: 12px; font-weight: 600; }
+.btn-danger:hover { background: var(--ember); color: #fff; }
+.btn-danger:disabled { opacity: .55; cursor: progress; }
 
 .stage { position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; background: #000; border-radius: 16px; border: 1px solid var(--line); box-shadow: 0 24px 70px rgba(0,0,0,.5); }
 .stage-fit { width: 100%; aspect-ratio: 4 / 3; }

@@ -71,6 +71,8 @@ export default function App() {
   const [inputState, setInputState] = useState("Not connected");
   const [room, setRoom] = useState(defaultRoom || "local");
   const [roomTouched, setRoomTouched] = useState(Boolean(defaultRoom));
+  const [roomOwner, setRoomOwner] = useState<string | null>(null);
+  const [closingRoom, setClosingRoom] = useState(false);
   const [activeRooms, setActiveRooms] = useState<ActiveRoom[]>([]);
   const [roms, setRoms] = useState<RomEntry[]>([]);
   const [selectedRom, setSelectedRom] = useState<string | null>(null);
@@ -160,11 +162,12 @@ export default function App() {
     }
   }
 
-  async function connect(targetRoom?: string) {
+  async function connect(targetRoom?: string, owner?: string | null) {
     if (socketRef.current) return;
     const joinRoom = (targetRoom ?? room).trim() || "local";
     setRoom(joinRoom);
     setRoomTouched(true);
+    setRoomOwner(owner ?? activeRooms.find((r) => r.room === joinRoom)?.owner ?? null);
     setStatus("Connecting");
     myPeerIdRef.current = null;
     hostPeerIdRef.current = null;
@@ -228,6 +231,10 @@ export default function App() {
         setChatMessages((prev) => [...prev.slice(-99), { username, playerNumber: pn, text, timestamp }]);
         return;
       }
+      if (message.type === "closed") {
+        socket.close();
+        return;
+      }
       if (message.type === "offer" && message.payload) {
         hostPeerIdRef.current = message.from ?? null;
         await peer.setRemoteDescription(message.payload);
@@ -245,7 +252,7 @@ export default function App() {
       }
     };
     socket.onerror = () => setStatus("Signaling error");
-    socket.onclose = () => { setStatus("Disconnected"); socketRef.current = null; };
+    socket.onclose = () => { setStatus("Disconnected"); socketRef.current = null; peerRef.current?.close(); peerRef.current = null; };
   }
 
   async function submitAuth() {
@@ -294,11 +301,25 @@ export default function App() {
         throw new Error(body.error ?? `failed to create room (${response.status})`);
       }
       const data = await response.json() as { room: string };
-      await connect(data.room);
+      await connect(data.room, authUsername);
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : "failed to create room");
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function closeRoom() {
+    if (!authToken || closingRoom) return;
+    setClosingRoom(true);
+    try {
+      await fetch(`${roomsUrl}/${encodeURIComponent(room)}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${authToken}` },
+      });
+      socketRef.current?.close();
+    } finally {
+      setClosingRoom(false);
     }
   }
 
@@ -430,7 +451,7 @@ export default function App() {
         ) : (
           <div className="room-grid">
             {activeRooms.map((entry) => (
-              <button key={entry.room} className="room-card" onClick={() => connect(entry.room)}>
+              <button key={entry.room} className="room-card" onClick={() => connect(entry.room, entry.owner)}>
                 <div className="room-card-top">
                   <span className="live-pulse" />
                   <span className="room-card-id">{entry.room}</span>
@@ -521,6 +542,11 @@ export default function App() {
             <span className="player-pill"><span className={status.includes("Connected") ? "dot live" : "dot"} />{status.includes("Connected") ? t("live") : translate(lang, (statusKeys[status] as any) ?? "statusDisconnected")}</span>
             {playerNumber && <span className="player-pill accent">P{playerNumber}</span>}
             <span className="player-pill muted">{room}</span>
+            {authUsername === roomOwner && (
+              <button className="btn-danger" onClick={closeRoom} disabled={closingRoom}>
+                {closingRoom ? t("closing") : t("closeRoom")}
+              </button>
+            )}
             <button className="icon-button" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <circle cx="12" cy="12" r="3.2" />

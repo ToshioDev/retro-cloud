@@ -64,6 +64,8 @@ const dict = {
 
   players: { en: "Players", es: "Jugadores" },
   host: { en: "Room host", es: "Dueño de la sala" },
+  closeRoom: { en: "Close room", es: "Cerrar sala" },
+  closing: { en: "Closing…", es: "Cerrando…" },
   you: { en: "you", es: "tú" },
   chat: { en: "Chat", es: "Chat" },
   sayHi: { en: "Say hi to the room.", es: "Saluda a la sala." },
