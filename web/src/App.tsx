@@ -1410,8 +1410,8 @@ export default function App() {
 
     {inLobby && lobbyView === "catalog" && (
       <section className="lobby">
-        {/* Header Toolbar (Search + Hashtags) */}
-        <div className="jam-header-bar">
+        {/* Desktop Header Toolbar */}
+        <div className="jam-header-bar topbar-desktop-only">
           <div className="jam-search-box">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
             <input
@@ -1427,6 +1427,36 @@ export default function App() {
               <button
                 key={tag}
                 className={`jam-hashtag-pill${catalogSearch === tag ? " active" : ""}`}
+                onClick={() => { setCatalogSearch(catalogSearch === tag ? "" : tag); playClickSound(); }}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Mobile Header Toolbar */}
+        <div className="jam-mobile-header topbar-mobile-only">
+          <div className="jam-mobile-search">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            <input
+              className="jam-mobile-search-input"
+              value={catalogSearch}
+              onChange={(event) => setCatalogSearch(event.target.value)}
+              placeholder={t("searchGames")}
+              aria-label={t("searchGames")}
+            />
+            {catalogSearch && (
+              <button className="jam-mobile-search-clear" onClick={() => setCatalogSearch("")}>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            )}
+          </div>
+          <div className="jam-mobile-tags">
+            {HASHTAGS.map((tag) => (
+              <button
+                key={tag}
+                className={`jam-mobile-tag${catalogSearch === tag ? " active" : ""}`}
                 onClick={() => { setCatalogSearch(catalogSearch === tag ? "" : tag); playClickSound(); }}
               >
                 {tag}

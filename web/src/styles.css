@@ -679,6 +679,7 @@ button:disabled { cursor: progress; opacity: .55; }
 .icon-button.active-toggle { color: var(--cyan); border-color: var(--cyan); background: rgba(0, 168, 255, 0.15); box-shadow: 0 0 10px var(--cyan-glow); }
 .topbar-desktop-only { display: flex; }
 .topbar-mobile-only { display: none !important; }
+.jam-mobile-header { display: none; }
 .overflow-wrap { position: relative; }
 .overflow-btn { pointer-events: auto; }
 .overflow-dropdown {
@@ -879,6 +880,37 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
 @media (max-width: 900px) {
   .topbar-desktop-only { display: none !important; }
   .topbar-mobile-only { display: flex !important; }
+  .jam-mobile-header { display: flex; flex-direction: column; gap: 12px; padding: 0 0 12px; }
+  .jam-mobile-search {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--panel-raised); border: 1px solid var(--line);
+    border-radius: 14px; padding: 12px 14px;
+  }
+  .jam-mobile-search svg { color: var(--mist); flex-shrink: 0; }
+  .jam-mobile-search-input {
+    flex: 1; background: none; border: none; outline: none;
+    color: var(--text); font-size: 15px; font-family: var(--font-body);
+  }
+  .jam-mobile-search-input::placeholder { color: var(--mist); }
+  .jam-mobile-search-clear {
+    display: flex; width: 28px; height: 28px; align-items: center; justify-content: center;
+    border-radius: 50%; background: var(--panel-solid); color: var(--mist); border: none; cursor: pointer;
+  }
+  .jam-mobile-tags {
+    display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  .jam-mobile-tags::-webkit-scrollbar { display: none; }
+  .jam-mobile-tag {
+    flex-shrink: 0; padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: 700;
+    background: var(--panel-raised); color: var(--mist); border: 1px solid var(--line);
+    cursor: pointer; transition: all .15s ease;
+  }
+  .jam-mobile-tag:active { transform: scale(0.95); }
+  .jam-mobile-tag.active {
+    background: rgba(139, 92, 246, 0.25); color: #c084fc;
+    border-color: rgba(139, 92, 246, 0.5);
+  }
   main:not(.in-room) { padding-bottom: 84px; margin-left: auto; width: min(880px, calc(100% - 32px)); }
   .side-rail { display: none; }
   .bottom-tab-bar {
