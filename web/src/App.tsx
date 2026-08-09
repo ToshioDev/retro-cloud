@@ -23,10 +23,12 @@ const UPLOAD_INFO: Record<string, { exts: string[]; label: string; maxMB: number
   nes: { exts: [".nes"], label: ".nes", maxMB: 8 },
   snes: { exts: [".sfc", ".smc"], label: ".sfc · .smc", maxMB: 8 },
   ps1: { exts: [".bin", ".iso", ".img", ".pbp", ".chd"], label: ".bin · .iso · .img · .pbp · .chd", maxMB: 2000 },
+  zip: { exts: [".zip"], label: ".zip (ROM comprimida)", maxMB: 2000 },
 };
 const EXTENSION_TO_GAME: Record<string, string> = {
   ".nes": "nes", ".sfc": "snes", ".smc": "snes",
   ".bin": "ps1", ".iso": "ps1", ".img": "ps1", ".pbp": "ps1", ".chd": "ps1",
+  ".zip": "zip",
 };
 
 const CONSOLES: { id: string; label: string; sub: string; active: boolean; hue: string; gradient: string }[] = [
@@ -909,11 +911,11 @@ export default function App() {
     const game = EXTENSION_TO_GAME[ext];
     const info = game ? UPLOAD_INFO[game] : null;
     if (!info) {
-      setUploadError(`unsupported file type: ${ext}`);
+      setUploadError(`tipo de archivo no soportado: ${ext} — usa .nes, .sfc, .bin, .iso, .img, .pbp, .chd o .zip`);
       return;
     }
     if (file.size > info.maxMB * 1024 * 1024) {
-      setUploadError(`file is too big — ${info.maxMB} MB max for this console`);
+      setUploadError(`archivo demasiado grande — máx ${info.maxMB} MB para esta consola`);
       return;
     }
     setUploading(true);
@@ -921,7 +923,7 @@ export default function App() {
     setUploadDone(false);
     setUploadError("");
     try {
-      const uploaded = await new Promise<RomEntry>((resolve, reject) => {
+      const uploadedAny = await new Promise<{ file?: string; files?: Array<{ file: string; game: string; size: number; owner: string }> }>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", `${romsUrl}?filename=${encodeURIComponent(file.name)}`);
         xhr.setRequestHeader("content-type", "application/octet-stream");
@@ -942,7 +944,8 @@ export default function App() {
       });
       setUploadProgress(100);
       await refreshRoms();
-      setSelectedRom(uploaded.file);
+      const firstFile = uploadedAny.files ? uploadedAny.files[0] : uploadedAny;
+      setSelectedRom(firstFile?.file ?? null);
       setUploadDone(true);
       window.setTimeout(() => setUploadDone(false), 1800);
     } catch (error) {
@@ -2604,7 +2607,8 @@ export default function App() {
               <div className="upload-modal-consoles">
                 <div className="upload-console-chip"><span className="chip-label">NES</span><span className="chip-formats">.nes (max 8 MB)</span></div>
                 <div className="upload-console-chip"><span className="chip-label">SNES</span><span className="chip-formats">.sfc, .smc (max 8 MB)</span></div>
-                <div className="upload-console-chip"><span className="chip-label">PS1</span><span className="chip-formats">.bin, .iso, .img, .pbp, .chd (max 700 MB)</span></div>
+                <div className="upload-console-chip"><span className="chip-label">PS1</span><span className="chip-formats">.bin, .iso, .img, .pbp, .chd (max 2 GB)</span></div>
+                <div className="upload-console-chip"><span className="chip-label">ZIP</span><span className="chip-formats">.zip — archivo comprimido con ROM (max 2 GB)</span></div>
               </div>
             </div>
 

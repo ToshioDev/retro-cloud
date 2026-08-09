@@ -5,6 +5,7 @@ import { createWriteStream } from "node:fs";
 import { join, basename, extname } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import Docker from "dockerode";
+import yauzl from "yauzl";
 import * as auth from "./auth.js";
 
 type SignalMessage = {
@@ -45,13 +46,49 @@ const extensionToGame: Record<string, string> = {
   ".img": "ps1",
   ".pbp": "ps1",
   ".chd": "ps1",
+  ".zip": "zip",
 };
-const maxRomUploadBytesByGame: Record<string, number> = { nes: 8 * 1024 * 1024, snes: 8 * 1024 * 1024, ps1: 2000 * 1024 * 1024 };
+const zipExtractableExts = new Set([".nes", ".sfc", ".smc", ".bin", ".iso", ".img", ".pbp", ".chd"]);
+const maxRomUploadBytesByGame: Record<string, number> = { nes: 8 * 1024 * 1024, snes: 8 * 1024 * 1024, ps1: 2000 * 1024 * 1024, zip: 2000 * 1024 * 1024 };
 const maxBiosUploadBytes = 4 * 1024 * 1024;
 const ps1BiosFilename = "scph1001.bin";
 
 function gameForExtension(filename: string): string | null {
   return extensionToGame[extname(filename).toLowerCase()] ?? null;
+}
+
+function extractZip(zipPath: string, destDir: string): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
+      if (err) return reject(err);
+      const extractedFiles: string[] = [];
+      zipfile.readEntry();
+      zipfile.on("entry", (entry) => {
+        if (/\/$/.test(entry.fileName)) {
+          zipfile.readEntry();
+          return;
+        }
+        const ext = extname(entry.fileName).toLowerCase();
+        if (!zipExtractableExts.has(ext)) {
+          zipfile.readEntry();
+          return;
+        }
+        const outName = basename(entry.fileName);
+        const outPath = join(destDir, outName);
+        zipfile.openReadStream(entry, (err2, readStream) => {
+          if (err2) return reject(err2);
+          const out = createWriteStream(outPath);
+          readStream.pipe(out);
+          out.on("finish", () => {
+            extractedFiles.push(outName);
+            zipfile.readEntry();
+          });
+        });
+      });
+      zipfile.on("end", () => resolve(extractedFiles));
+      zipfile.on("error", reject);
+    });
+  });
 }
 
 async function hasPs1Bios(): Promise<boolean> {
@@ -289,7 +326,7 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     const game = gameForExtension(requestedName);
     if (!requestedName || !game) {
       response.writeHead(400, { "content-type": "application/json" });
-      response.end(JSON.stringify({ error: "filename must end in .nes, .sfc, .smc, .bin, .iso, .img, .pbp, or .chd" }));
+      response.end(JSON.stringify({ error: "filename must end in .nes, .sfc, .smc, .bin, .iso, .img, .pbp, .chd, or .zip" }));
       return;
     }
     const maxRomUploadBytes = maxRomUploadBytesByGame[game] ?? 8 * 1024 * 1024;
@@ -312,6 +349,34 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
       if (aborted) return;
       rename(tmpPath, finalPath)
         .then(async () => {
+          if (extname(requestedName).toLowerCase() === ".zip") {
+            try {
+              const extracted = await extractZip(finalPath, romsLocalDir);
+              await unlink(finalPath);
+              if (extracted.length === 0) {
+                response.writeHead(400, { "content-type": "application/json" });
+                response.end(JSON.stringify({ error: "ZIP contains no supported ROM files (.nes, .sfc, .bin, .iso, .chd, etc.)" }));
+                return;
+              }
+              const results = [];
+              for (const name of extracted) {
+                const g = gameForExtension(name);
+                if (g && g !== "zip") {
+                  await setRomOwner(name, username);
+                  const info = await stat(join(romsLocalDir, name));
+                  results.push({ file: name, game: g, size: info.size, owner: username });
+                }
+              }
+              console.log(`[SIGNALING] ${username} uploaded ZIP ${requestedName}, extracted ${extracted.length} ROM(s)`);
+              response.writeHead(201, { "content-type": "application/json" });
+              response.end(JSON.stringify(results.length === 1 ? results[0] : { files: results }));
+            } catch (zipErr) {
+              void unlink(finalPath).catch(() => {});
+              response.writeHead(400, { "content-type": "application/json" });
+              response.end(JSON.stringify({ error: `failed to extract ZIP: ${zipErr instanceof Error ? zipErr.message : "unknown error"}` }));
+            }
+            return;
+          }
           await setRomOwner(requestedName, username);
           console.log(`[SIGNALING] ${username} uploaded ROM ${requestedName} (${receivedBytes} bytes)`);
           response.writeHead(201, { "content-type": "application/json" });
