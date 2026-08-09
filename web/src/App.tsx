@@ -711,18 +711,6 @@ export default function App() {
   const [roms, setRoms] = useState<RomEntry[]>([]);
   const [selectedRom, setSelectedRom] = useState<string | null>(null);
   const [catalogConsole, setCatalogConsole] = useState<string>("all");
-
-  const friendRooms = activeRooms.filter((r) => r.owner != null && friends.friends.includes(r.owner) && r.visibility !== "private");
-  const filteredRooms = activeRooms.filter((r) => {
-    if (roomFilter === "friends") return r.owner != null && friends.friends.includes(r.owner);
-    if (roomFilter === "public") return r.visibility !== "private";
-    if (roomFilter === "private") return r.visibility === "private";
-    return true;
-  }).filter((r) => {
-    if (!roomSearch.trim()) return true;
-    const q = roomSearch.toLowerCase();
-    return r.room.toLowerCase().includes(q) || r.owner?.toLowerCase().includes(q) || r.game?.toLowerCase().includes(q);
-  });
   const [catalogSearch, setCatalogSearch] = useState("");
   const [roomSearch, setRoomSearch] = useState("");
   const [roomFilter, setRoomFilter] = useState<string>("all");
@@ -818,6 +806,22 @@ export default function App() {
   const [emailSaving, setEmailSaving] = useState(false);
   const [emailError, setEmailError] = useState("");
   const [friends, setFriends] = useState<{ friends: string[]; incoming: string[]; outgoing: string[] }>({ friends: [], incoming: [], outgoing: [] });
+  // Was declared before `friends`/`roomFilter`/`roomSearch` further up this function — those are all
+  // `const`s, so referencing them before their own declaration line throws a TDZ ReferenceError. Since
+  // .filter() only invokes its callback when the array is non-empty, this stayed invisible until a room
+  // was actually live: the instant activeRooms had an entry, every connected client's render crashed,
+  // which is why the whole app appeared to go down for everyone the moment anyone was in a room.
+  const friendRooms = activeRooms.filter((r) => r.owner != null && friends.friends.includes(r.owner) && r.visibility !== "private");
+  const filteredRooms = activeRooms.filter((r) => {
+    if (roomFilter === "friends") return r.owner != null && friends.friends.includes(r.owner);
+    if (roomFilter === "public") return r.visibility !== "private";
+    if (roomFilter === "private") return r.visibility === "private";
+    return true;
+  }).filter((r) => {
+    if (!roomSearch.trim()) return true;
+    const q = roomSearch.toLowerCase();
+    return r.room.toLowerCase().includes(q) || r.owner?.toLowerCase().includes(q) || r.game?.toLowerCase().includes(q);
+  });
   const [addFriendInput, setAddFriendInput] = useState("");
   const [friendError, setFriendError] = useState("");
   const [inbox, setInbox] = useState<Array<{ peer: string; lastMessage: string; lastTime: string; unread: number }>>([]);
