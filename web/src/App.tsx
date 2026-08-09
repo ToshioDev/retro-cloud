@@ -22,7 +22,7 @@ function formatTimeAgo(iso: string): string {
 const UPLOAD_INFO: Record<string, { exts: string[]; label: string; maxMB: number }> = {
   nes: { exts: [".nes"], label: ".nes", maxMB: 8 },
   snes: { exts: [".sfc", ".smc"], label: ".sfc · .smc", maxMB: 8 },
-  ps1: { exts: [".bin", ".iso", ".img", ".pbp", ".chd"], label: ".bin · .iso · .img · .pbp · .chd", maxMB: 700 },
+  ps1: { exts: [".bin", ".iso", ".img", ".pbp", ".chd"], label: ".bin · .iso · .img · .pbp · .chd", maxMB: 2000 },
 };
 const EXTENSION_TO_GAME: Record<string, string> = {
   ".nes": "nes", ".sfc": "snes", ".smc": "snes",

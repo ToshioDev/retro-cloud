@@ -46,7 +46,7 @@ const extensionToGame: Record<string, string> = {
   ".pbp": "ps1",
   ".chd": "ps1",
 };
-const maxRomUploadBytesByGame: Record<string, number> = { nes: 8 * 1024 * 1024, snes: 8 * 1024 * 1024, ps1: 700 * 1024 * 1024 };
+const maxRomUploadBytesByGame: Record<string, number> = { nes: 8 * 1024 * 1024, snes: 8 * 1024 * 1024, ps1: 2000 * 1024 * 1024 };
 const maxBiosUploadBytes = 4 * 1024 * 1024;
 const ps1BiosFilename = "scph1001.bin";
 
