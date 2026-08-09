@@ -501,6 +501,8 @@ export default function App() {
   const lastOwnerRef = useRef<string | null>(null);
   const lastGameRef = useRef<string | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
+  const [hudVisible, setHudVisible] = useState(true);
+  const hudTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => () => {
     shouldReconnectRef.current = false;
@@ -1183,6 +1185,19 @@ export default function App() {
   }, [canvasHintVisible]);
 
   const inLobby = status === "Disconnected";
+
+  function flashHud() {
+    setHudVisible(true);
+    if (hudTimeoutRef.current) window.clearTimeout(hudTimeoutRef.current);
+    hudTimeoutRef.current = window.setTimeout(() => setHudVisible(false), 3000);
+  }
+
+  useEffect(() => {
+    if (!inLobby && isTouchDevice) {
+      flashHud();
+      return () => { if (hudTimeoutRef.current) window.clearTimeout(hudTimeoutRef.current); };
+    }
+  }, [inLobby, isTouchDevice]);
 
   if (!authToken) {
     return <div className="auth-split">
@@ -1982,8 +1997,8 @@ export default function App() {
 
     {!inLobby && <>
       <div className="room-layout">
-        <div className={isFullscreen ? "player-stage pseudo-fullscreen" : "player-stage"} ref={stageWrapRef}>
-          <div className="player-topbar overlay-bar">
+        <div className={`${isFullscreen ? "player-stage pseudo-fullscreen" : "player-stage"} ${isTouchDevice && !hudVisible ? "hud-hidden" : ""}`} ref={stageWrapRef} onClick={() => { if (isTouchDevice) flashHud(); }}>
+          <div className={`player-topbar overlay-bar ${isTouchDevice && !hudVisible ? "hud-hidden" : ""}`}>
             <div className="brand brand-mini"><span className="brand-mark">◆</span><span className="brand-name">retro<em>X</em></span></div>
             <div className="latency-wrap">
               <button
@@ -2092,7 +2107,7 @@ export default function App() {
             {canvasToast && <div className="canvas-toast">{canvasToast}</div>}
           </div>
           <TouchControls sendInput={sendInput} layout={touchLayout} size={touchSize} />
-          <button className="mobile-panel-fab" onClick={() => setMobilePanelOpen(true)} aria-label={t("players")}>
+          <button className="mobile-panel-fab" onClick={(e) => { e.stopPropagation(); setMobilePanelOpen(true); }} aria-label={t("players")}>
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" />
             </svg>

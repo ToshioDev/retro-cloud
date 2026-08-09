@@ -948,6 +948,12 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
   .room-layout { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
   .player-stage { flex: 1; min-height: 0; }
 
+  /* HUD auto-hide */
+  .hud-hidden { opacity: 0; pointer-events: none; }
+  .hud-hidden .touch-controls, .hud-hidden .mobile-panel-fab { opacity: 0; pointer-events: none; }
+  .player-topbar { transition: opacity .3s ease; }
+  .touch-controls { transition: opacity .3s ease; }
+
   .player-topbar.overlay-bar {
     flex-wrap: wrap; gap: 6px;
     padding: calc(10px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) 10px calc(12px + env(safe-area-inset-left));
@@ -970,6 +976,7 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
     width: 46px; height: 46px; padding: 0; align-items: center; justify-content: center;
     border-radius: 50%; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(10px);
     border: 1px solid rgba(255,255,255,.2); color: #fff; pointer-events: auto;
+    transition: opacity .3s ease;
   }
   .fab-badge { position: absolute; top: 8px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); border: 2px solid var(--void); box-shadow: 0 0 6px var(--cyan); }
   .mobile-panel-backdrop { display: block; z-index: 6; }
@@ -977,6 +984,23 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
     display: flex; align-self: flex-end; width: 32px; height: 32px; padding: 0; margin-bottom: 4px;
     align-items: center; justify-content: center; border-radius: 50%; background: var(--panel-raised); color: var(--mist);
   }
+
+  /* Touch controls mobile */
+  .touch-dpad { width: 130px; height: 130px; left: calc(12px + env(safe-area-inset-left)); bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .touch-dpad-btn { width: 46px; height: 46px; border-radius: 10px; }
+  .dpad-up { left: 42px; }
+  .dpad-down { left: 42px; }
+  .dpad-left { top: 42px; }
+  .dpad-right { top: 42px; }
+
+  .touch-actions { width: 120px; height: 100px; right: calc(12px + env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .touch-action-btn { width: 56px; height: 56px; font-size: 16px; }
+  .action-a { bottom: 34px; }
+
+  .touch-system { bottom: calc(180px + env(safe-area-inset-bottom)); }
+  .touch-system-btn { padding: 7px 14px; font-size: 10px; }
+
+  .touch-shoulder-btn { width: 56px; height: 34px; font-size: 11px; font-weight: 800; }
 
   .social-panel {
     position: fixed; top: auto; bottom: 0; left: 0; right: 0; width: 100%; height: 72vh;
