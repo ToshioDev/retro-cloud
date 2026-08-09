@@ -839,16 +839,39 @@ button:disabled { cursor: progress; opacity: .55; }
   display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
   background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px); border: 1px solid var(--line);
   font-size: 12px; font-family: var(--font-mono); color: var(--paper); font-weight: 700;
+  transition: border-color .3s, box-shadow .3s;
 }
 .latency-bars { display: flex; align-items: flex-end; gap: 2px; height: 12px; }
-.latency-bars span { width: 3px; display: block; background: var(--line); border-radius: 1px; }
+.latency-bars span { width: 3px; display: block; background: var(--line); border-radius: 1px; transition: background .3s, box-shadow .3s; }
 .latency-bars span:nth-child(1) { height: 40%; }
-.latency-bars span:nth-child(2) { height: 70%; }
-.latency-bars span:nth-child(3) { height: 100%; }
-.latency-pill.good .latency-bars span { background: var(--emerald); box-shadow: 0 0 6px var(--emerald); }
-.latency-pill.ok .latency-bars span:nth-child(1),
-.latency-pill.ok .latency-bars span:nth-child(2) { background: var(--amber); }
-.latency-pill.bad .latency-bars span:nth-child(1) { background: var(--ember); }
+.latency-bars span:nth-child(2) { height: 60%; }
+.latency-bars span:nth-child(3) { height: 80%; }
+.latency-bars span:nth-child(4) { height: 100%; }
+.latency-bars span.active { background: var(--emerald); box-shadow: 0 0 6px var(--emerald); }
+.latency-ms { min-width: 24px; text-align: right; }
+/* excellent <50ms */
+.latency-pill.excellent { border-color: var(--emerald); box-shadow: 0 0 10px rgba(16, 185, 129, .25); }
+.latency-pill.excellent .latency-bars span.active { background: var(--emerald); box-shadow: 0 0 6px var(--emerald); }
+.latency-pill.excellent .latency-ms { color: var(--emerald); }
+/* good <100ms */
+.latency-pill.good { border-color: var(--emerald); box-shadow: 0 0 8px rgba(16, 185, 129, .15); }
+.latency-pill.good .latency-bars span.active { background: var(--emerald); box-shadow: 0 0 4px var(--emerald); }
+.latency-pill.good .latency-ms { color: var(--emerald); }
+/* ok <150ms */
+.latency-pill.ok { border-color: var(--amber); box-shadow: 0 0 8px rgba(245, 158, 11, .15); }
+.latency-pill.ok .latency-bars span.active { background: var(--amber); box-shadow: 0 0 4px var(--amber); }
+.latency-pill.ok .latency-ms { color: var(--amber); }
+/* bad >=150ms */
+.latency-pill.bad { border-color: var(--ember); box-shadow: 0 0 8px rgba(239, 68, 68, .2); }
+.latency-pill.bad .latency-bars span.active { background: var(--ember); box-shadow: 0 0 4px var(--ember); }
+.latency-pill.bad .latency-ms { color: var(--ember); }
+/* pending / connecting */
+.latency-pill.pending { border-color: var(--amber); animation: pulse-border 1.5s ease-in-out infinite; }
+.latency-pill.pending .latency-bars span { background: var(--amber); opacity: .5; }
+/* disconnected */
+.latency-pill.down { border-color: var(--line); opacity: .5; }
+.latency-pill.down .latency-bars span { background: var(--line); }
+@keyframes pulse-border { 0%,100% { box-shadow: 0 0 4px rgba(245,158,11,.15); } 50% { box-shadow: 0 0 12px rgba(245,158,11,.35); } }
 
 .latency-wrap { position: relative; }
 .popover-backdrop { position: fixed; inset: 0; z-index: 4; }

@@ -1090,7 +1090,7 @@ export default function App() {
               setRttMs(Math.round(report.currentRoundTripTime * 1000));
             }
           });
-        }, 2000);
+        }, 1000);
       }
       if (state === "failed") {
         setStatus("WebRTC failed — restarting ICE");
@@ -2800,11 +2800,16 @@ export default function App() {
             <div className="brand brand-mini"><span className="brand-mark">◆</span><span className="brand-name">retro<em>X</em></span></div>
             <div className="latency-wrap">
               <button
-                className={`latency-pill ${status.includes("Connected") ? (rttMs === null ? "pending" : rttMs < 80 ? "good" : rttMs < 150 ? "ok" : "bad") : "down"}`}
+                className={`latency-pill ${status.includes("Connected") ? (rttMs === null ? "pending" : rttMs < 50 ? "excellent" : rttMs < 100 ? "good" : rttMs < 150 ? "ok" : "bad") : "down"}`}
                 onClick={() => setLatencyPopoverOpen((v) => !v)}
               >
-                <span className="latency-bars"><span /><span /><span /></span>
-                {reconnecting ? t("reconnecting") : status.includes("Connected") && rttMs !== null ? `${rttMs}ms` : ""}
+                <span className="latency-bars">
+                  <span className={rttMs !== null && rttMs < 200 ? "active" : ""} />
+                  <span className={rttMs !== null && rttMs < 120 ? "active" : ""} />
+                  <span className={rttMs !== null && rttMs < 80 ? "active" : ""} />
+                  <span className={rttMs !== null && rttMs < 50 ? "active" : ""} />
+                </span>
+                <span className="latency-ms">{reconnecting ? "···" : rttMs !== null ? `${rttMs}` : "—"}</span>
               </button>
               {latencyPopoverOpen && (
                 <>
