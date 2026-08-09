@@ -7,6 +7,17 @@ type RosterEntry = { peerId: string; playerNumber: number; username: string };
 type ChatMessage = { username: string; playerNumber?: number; text: string; timestamp: number };
 type RomEntry = { file: string; game: "nes" | "snes"; size: number; owner: string | null };
 
+const CONSOLES: { id: string; label: string; sub: string; active: boolean; hue: string }[] = [
+  { id: "nes", label: "NES", sub: "8-bit", active: true, hue: "nes" },
+  { id: "snes", label: "SNES", sub: "16-bit", active: true, hue: "snes" },
+  { id: "gba", label: "GBA", sub: "Próximamente", active: false, hue: "gba" },
+  { id: "genesis", label: "Genesis", sub: "Próximamente", active: false, hue: "genesis" },
+  { id: "pce", label: "PC Engine", sub: "Próximamente", active: false, hue: "pce" },
+  { id: "gb", label: "Game Boy", sub: "Próximamente", active: false, hue: "gb" },
+  { id: "n64", label: "N64", sub: "Próximamente", active: false, hue: "n64" },
+  { id: "ps1", label: "PS1", sub: "Próximamente", active: false, hue: "ps1" },
+];
+
 const signalingUrl = import.meta.env.VITE_SIGNALING_URL ?? "ws://localhost:8080/signaling";
 const apiBase = signalingUrl.replace(/^ws/, "http").replace(/\/signaling\/?$/, "");
 const roomsUrl = `${apiBase}/rooms`;
@@ -178,6 +189,8 @@ export default function App() {
   const [lobbyView, setLobbyView] = useState<"rooms" | "catalog">("rooms");
   const [roms, setRoms] = useState<RomEntry[]>([]);
   const [selectedRom, setSelectedRom] = useState<string | null>(null);
+  const [catalogConsole, setCatalogConsole] = useState<string>("all");
+  const [catalogSearch, setCatalogSearch] = useState("");
   const [newRoomVisibility, setNewRoomVisibility] = useState<"public" | "private">("public");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
@@ -988,9 +1001,35 @@ export default function App() {
             <p className="lobby-sub">{t("catalogSub")}</p>
           </div>
         </div>
+
+        <p className="form-label showcase-label">{t("byog")}</p>
+        <div className="console-grid">
+          {CONSOLES.map((c) => (
+            <button
+              key={c.id}
+              className={`console-tile console-${c.hue}${catalogConsole === c.id ? " active" : ""}${!c.active ? " locked" : ""}`}
+              onClick={() => c.active && setCatalogConsole(catalogConsole === c.id ? "all" : c.id)}
+              disabled={!c.active}
+            >
+              {!c.active && <span className="console-tile-lock"><IconLock /></span>}
+              <span className="console-tile-label">{c.label}</span>
+              <span className="console-tile-sub">{c.sub}</span>
+            </button>
+          ))}
+        </div>
+
         <div className="lobby-split">
           <div className="lobby-games">
-            <p className="form-label showcase-label">{t("chooseRom")}</p>
+            <div className="showcase-label-row">
+              <p className="form-label showcase-label">{t("chooseRom")}</p>
+              <input
+                className="field catalog-search"
+                value={catalogSearch}
+                onChange={(event) => setCatalogSearch(event.target.value)}
+                placeholder={t("searchGames")}
+                aria-label={t("searchGames")}
+              />
+            </div>
             {roms.length === 0 ? (
               <div className="empty-state">
                 <div className="empty-glyph">▢</div>
@@ -1000,7 +1039,9 @@ export default function App() {
             ) : (
               <div className="catalog">
                 {(["snes", "nes"] as const).map((consoleName) => {
-                  const consoleRoms = roms.filter((rom) => rom.game === consoleName);
+                  if (catalogConsole !== "all" && catalogConsole !== consoleName) return null;
+                  const search = catalogSearch.trim().toLowerCase();
+                  const consoleRoms = roms.filter((rom) => rom.game === consoleName && (!search || rom.file.toLowerCase().includes(search)));
                   if (consoleRoms.length === 0) return null;
                   return (
                     <div key={consoleName} className="catalog-row">

@@ -182,6 +182,42 @@ button:disabled { cursor: progress; opacity: .55; }
 /* Game showcase */
 .showcase-label { margin-top: 0; }
 /* Netflix-style catalog: one horizontally-scrolling row per console */
+.console-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin: 4px 0 26px;
+}
+.console-tile {
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end;
+  gap: 2px; padding: 14px 12px; height: 84px; border-radius: 14px; overflow: hidden;
+  border: 1px solid var(--line); background: var(--panel);
+  text-align: left; transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.console-tile::before {
+  content: ""; position: absolute; inset: 0; opacity: .5; transition: opacity .15s ease;
+  background: linear-gradient(150deg, var(--console-a), var(--console-b) 65%, var(--panel) 130%);
+}
+.console-tile-label { position: relative; font-family: var(--font-display); font-weight: 700; font-size: 15px; letter-spacing: -.01em; color: var(--paper); }
+.console-tile-sub { position: relative; font-size: 10.5px; color: rgba(243,244,247,.72); text-transform: uppercase; letter-spacing: .06em; }
+.console-tile:not(:disabled):hover { transform: translateY(-3px); box-shadow: 0 10px 22px rgba(0,0,0,.35); }
+.console-tile:not(:disabled):hover::before { opacity: .72; }
+.console-tile.active { border-color: var(--paper); box-shadow: 0 0 0 2px var(--void), 0 0 0 3px var(--paper); }
+.console-tile.active::before { opacity: .85; }
+.console-tile.locked { cursor: default; opacity: .55; }
+.console-tile.locked::before { opacity: .18; filter: grayscale(1); }
+.console-tile.locked .console-tile-sub { color: var(--mist); }
+.console-tile-lock { position: absolute; top: 10px; right: 10px; color: var(--mist); display: flex; }
+.console-nes { --console-a: #ff7a59; --console-b: #b23a2e; }
+.console-snes { --console-a: #7c5cff; --console-b: #3a2f7a; }
+.console-gba { --console-a: #ff4d94; --console-b: #7a2f5a; }
+.console-genesis { --console-a: #b25cff; --console-b: #4a2f7a; }
+.console-pce { --console-a: #2fd9c8; --console-b: #1f6e6e; }
+.console-gb { --console-a: #6fd94f; --console-b: #2f7a3f; }
+.console-n64 { --console-a: #ffcf4d; --console-b: #7a5f2f; }
+.console-ps1 { --console-a: #4d9bff; --console-b: #2f4f7a; }
+
+.showcase-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.showcase-label-row .showcase-label { margin: 0; }
+.catalog-search { max-width: 220px; padding: 8px 12px; font-size: 13px; }
+
 .catalog { display: flex; flex-direction: column; gap: 22px; }
 .catalog-row { min-width: 0; }
 .catalog-row-title { margin: 0 0 10px; font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--paper); letter-spacing: .03em; }

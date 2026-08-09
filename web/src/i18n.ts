@@ -64,6 +64,8 @@ const dict = {
   playing: { en: "playing", es: "jugando" },
   joinRoomCta: { en: "Join room →", es: "Unirse →" },
 
+  byog: { en: "Bring your own games", es: "Trae tus propios juegos" },
+  searchGames: { en: "Search games…", es: "Buscar juegos…" },
   chooseRom: { en: "Choose a ROM to host", es: "Elige una ROM para crear sala" },
   noRomsUploaded: { en: "No ROMs uploaded yet.", es: "Aún no hay ROMs subidas." },
   uploadFromPanel: { en: "Upload one from the panel to start hosting.", es: "Sube una desde el panel para empezar." },
