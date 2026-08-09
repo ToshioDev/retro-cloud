@@ -681,7 +681,7 @@ button:disabled { cursor: progress; opacity: .55; }
 .topbar-desktop-only { display: flex; }
 .topbar-mobile-only { display: none !important; }
 .jam-mobile-header { display: none; }
-.overflow-wrap { position: relative; }
+.overflow-wrap { position: relative; z-index: 10; }
 .overflow-btn { pointer-events: auto; }
 .overflow-dropdown {
   position: absolute; top: calc(100% + 8px); right: 0; z-index: 20;
@@ -740,7 +740,7 @@ video { image-rendering: pixelated; position: relative; z-index: 1; display: blo
 .placeholder { position: absolute; color: var(--mist); font-size: 14px; font-family: var(--font-mono); z-index: 2; font-weight: 600; }
 
 /* Settings drawer */
-.settings-backdrop { position: fixed; inset: 0; background: rgba(6,7,10,.7); backdrop-filter: blur(6px); display: flex; justify-content: flex-end; z-index: 10; animation: fadeIn .2s ease both; }
+.settings-backdrop { position: fixed; inset: 0; background: rgba(6,7,10,.7); backdrop-filter: blur(6px); display: flex; justify-content: flex-end; z-index: 1100; animation: fadeIn .2s ease both; }
 .settings-panel {
   width: min(420px, 100%); height: 100%; background: var(--panel-solid);
   border-left: 1px solid var(--line-bright); padding: 0; display: flex; flex-direction: column;
@@ -1248,6 +1248,8 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
   /* Desktop: no HUD auto-hide */
   .hud-hidden { opacity: 1 !important; pointer-events: auto !important; }
   .hud-hidden .touch-controls, .hud-hidden .mobile-panel-fab { opacity: 1; pointer-events: auto; }
+  /* Overflow menu stays visible even when HUD hidden */
+  .hud-hidden .overflow-wrap { opacity: 1 !important; pointer-events: auto !important; }
 
   .player-topbar.overlay-bar {
     flex-wrap: wrap; gap: 6px;
@@ -1287,7 +1289,7 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
     transition: opacity .3s ease;
   }
   .fab-badge { position: absolute; top: 8px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); border: 2px solid var(--void); box-shadow: 0 0 6px var(--cyan); }
-  .mobile-panel-backdrop { display: block; z-index: 6; }
+  .mobile-panel-backdrop { display: block; z-index: 1100; }
   .mobile-panel-close {
     display: flex; align-self: flex-end; width: 32px; height: 32px; padding: 0; margin-bottom: 4px;
     align-items: center; justify-content: center; border-radius: 50%; background: var(--panel-raised); color: var(--mist);
