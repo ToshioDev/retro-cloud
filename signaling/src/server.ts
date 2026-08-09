@@ -31,6 +31,7 @@ const signalingUrlForGameServer = process.env.GAME_SERVER_SIGNALING_URL ?? "ws:/
 const docker = romsHostDir ? new Docker() : null;
 const managedRooms = new Map<string, { containerId: string }>();
 const roomOwners = new Map<string, string>();
+const roomVisibility = new Map<string, "public" | "private">();
 const extensionToGame: Record<string, string> = { ".nes": "nes", ".sfc": "snes", ".smc": "snes" };
 const maxRomUploadBytes = 8 * 1024 * 1024;
 
@@ -76,7 +77,7 @@ async function resolveGameServerImage(): Promise<string> {
   return tag;
 }
 
-async function spawnGameServer(game: string, romPath: string, owner: string): Promise<string> {
+async function spawnGameServer(game: string, romPath: string, owner: string, visibility: "public" | "private"): Promise<string> {
   if (!docker) throw new Error("room creation is disabled: ROMS_DIR is not configured on the signaling service");
   const room = randomRoomId();
   const image = await resolveGameServerImage();
@@ -98,7 +99,8 @@ async function spawnGameServer(game: string, romPath: string, owner: string): Pr
   await container.start();
   managedRooms.set(room, { containerId: container.id });
   roomOwners.set(room, owner);
-  console.log(`[SIGNALING] spawned game-server for room ${room} (${game}, ${romPath}, owner=${owner})`);
+  roomVisibility.set(room, visibility);
+  console.log(`[SIGNALING] spawned game-server for room ${room} (${game}, ${romPath}, owner=${owner}, ${visibility})`);
   return room;
 }
 
@@ -107,6 +109,7 @@ async function teardownRoom(room: string) {
   if (!managed || !docker) return;
   managedRooms.delete(room);
   roomOwners.delete(room);
+  roomVisibility.delete(room);
   rooms.delete(room);
   try {
     await docker.getContainer(managed.containerId).stop();
@@ -151,6 +154,7 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     return;
   }
   if (request.method === "GET" && request.url === "/rooms") {
+    const requester = await auth.usernameForToken(bearerToken(request));
     const peerCounts = new Map<string, number>();
     const hostedRooms = new Set<string>();
     for (const peer of peers.values()) {
@@ -160,7 +164,13 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     }
     const activeRooms = [...hostedRooms]
       .filter((room) => roomOwners.has(room))
-      .map((room) => ({ room, peerCount: peerCounts.get(room) ?? 0, owner: roomOwners.get(room) ?? null }));
+      .filter((room) => roomVisibility.get(room) === "public" || roomOwners.get(room) === requester)
+      .map((room) => ({
+        room,
+        peerCount: peerCounts.get(room) ?? 0,
+        owner: roomOwners.get(room) ?? null,
+        visibility: roomVisibility.get(room) ?? "public",
+      }));
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({ rooms: activeRooms }));
     return;
@@ -262,15 +272,16 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
       response.end(JSON.stringify({ error: "authentication required" }));
       return;
     }
-    readJsonBody<{ file?: string }>(request)
+    readJsonBody<{ file?: string; visibility?: string }>(request)
       .then(async (body) => {
         const roms = await listRoms();
         const rom = roms.find((entry) => entry.file === body.file) ?? roms[0];
         if (!rom) throw new Error("no ROMs available: upload one first");
+        const visibility = body.visibility === "private" ? "private" : "public";
         const romPath = `/roms/${rom.file}`;
-        const room = await spawnGameServer(rom.game, romPath, username);
+        const room = await spawnGameServer(rom.game, romPath, username, visibility);
         response.writeHead(201, { "content-type": "application/json" });
-        response.end(JSON.stringify({ room, game: rom.game, romPath, owner: username }));
+        response.end(JSON.stringify({ room, game: rom.game, romPath, owner: username, visibility }));
       })
       .catch((error) => {
         console.error("[SIGNALING] failed to create room:", error instanceof Error ? error.message : error);

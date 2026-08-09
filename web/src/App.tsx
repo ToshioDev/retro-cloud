@@ -12,7 +12,7 @@ const apiBase = signalingUrl.replace(/^ws/, "http").replace(/\/signaling\/?$/, "
 const roomsUrl = `${apiBase}/rooms`;
 const romsUrl = `${apiBase}/roms`;
 const defaultRoom = import.meta.env.VITE_ROOM ?? "";
-type ActiveRoom = { room: string; peerCount: number; owner: string | null };
+type ActiveRoom = { room: string; peerCount: number; owner: string | null; visibility?: "public" | "private" };
 const buttons: Button[] = ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "START", "SELECT"];
 const defaultKeyBindings: Record<Button, string> = {
   UP: "ArrowUp", DOWN: "ArrowDown", LEFT: "ArrowLeft", RIGHT: "ArrowRight",
@@ -76,6 +76,7 @@ export default function App() {
   const [activeRooms, setActiveRooms] = useState<ActiveRoom[]>([]);
   const [roms, setRoms] = useState<RomEntry[]>([]);
   const [selectedRom, setSelectedRom] = useState<string | null>(null);
+  const [newRoomVisibility, setNewRoomVisibility] = useState<"public" | "private">("public");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -108,7 +109,7 @@ export default function App() {
     let cancelled = false;
     const refresh = async () => {
       try {
-        const response = await fetch(roomsUrl);
+        const response = await fetch(roomsUrl, { headers: authToken ? { authorization: `Bearer ${authToken}` } : {} });
         const data = await response.json() as { rooms: ActiveRoom[] };
         if (cancelled) return;
         setActiveRooms(data.rooms);
@@ -120,7 +121,7 @@ export default function App() {
     void refresh();
     const interval = window.setInterval(refresh, 3000);
     return () => { cancelled = true; window.clearInterval(interval); };
-  }, [status, roomTouched]);
+  }, [status, roomTouched, authToken]);
 
   async function refreshRoms() {
     try {
@@ -294,7 +295,7 @@ export default function App() {
       const response = await fetch(roomsUrl, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ file: selectedRom }),
+        body: JSON.stringify({ file: selectedRom, visibility: newRoomVisibility }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
@@ -422,15 +423,16 @@ export default function App() {
     </div>;
   }
 
-  return <main>
-    <header className="brand-header">
-      <div className="brand"><span className="brand-mark">◆</span><span className="brand-name">retro<em>deck</em></span></div>
-      <div className="header-right">
-        <LangToggle lang={lang} setLang={setLang} />
-        {inLobby && <span className="user-chip">{authUsername}<button className="link-button" onClick={logout}>{t("logOut")}</button></span>}
-        {!inLobby && <span className="user-chip">{t("room")} {room}</span>}
-      </div>
-    </header>
+  return <main className={inLobby ? undefined : "in-room"}>
+    {inLobby && (
+      <header className="brand-header">
+        <div className="brand"><span className="brand-mark">◆</span><span className="brand-name">retro<em>deck</em></span></div>
+        <div className="header-right">
+          <LangToggle lang={lang} setLang={setLang} />
+          <span className="user-chip">{authUsername}<button className="link-button" onClick={logout}>{t("logOut")}</button></span>
+        </div>
+      </header>
+    )}
 
     {inLobby && (
       <section className="lobby">
@@ -439,7 +441,7 @@ export default function App() {
             <h2>{t("roomsInSession")}</h2>
             <p className="lobby-sub">{t("lobbySub")}</p>
           </div>
-          <button className="btn-ghost" onClick={() => { void fetch(roomsUrl).then((r) => r.json()).then((d) => setActiveRooms(d.rooms)).catch(() => setActiveRooms([])); }}>{t("refresh")}</button>
+          <button className="btn-ghost" onClick={() => { void fetch(roomsUrl, { headers: authToken ? { authorization: `Bearer ${authToken}` } : {} }).then((r) => r.json()).then((d) => setActiveRooms(d.rooms)).catch(() => setActiveRooms([])); }}>{t("refresh")}</button>
         </div>
 
         {activeRooms.length === 0 ? (
@@ -455,6 +457,7 @@ export default function App() {
                 <div className="room-card-top">
                   <span className="live-pulse" />
                   <span className="room-card-id">{entry.room}</span>
+                  {entry.visibility === "private" && <span className="visibility-tag">🔒 {t("private")}</span>}
                 </div>
                 <div className="room-card-meta">
                   <span>{entry.owner ? `${t("hostedBy")} ${entry.owner}` : t("unowned")}</span>
@@ -495,6 +498,11 @@ export default function App() {
           <aside className="lobby-side">
             <div className="lobby-card">
               <p className="form-label">{t("hostThisRom")}</p>
+              <div className="visibility-toggle" role="group" aria-label={t("visibility")}>
+                <button className={newRoomVisibility === "public" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("public")}>🌐 {t("public")}</button>
+                <button className={newRoomVisibility === "private" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("private")}>🔒 {t("private")}</button>
+              </div>
+              <span className="lobby-card-hint">{newRoomVisibility === "public" ? t("publicHint") : t("privateHint")}</span>
               <button className="btn-primary lobby-card-cta" onClick={createRoom} disabled={creating || !selectedRom}>
                 {creating ? t("starting") : selectedRom ? `${t("createRoom")} · ${selectedRom}` : t("selectRomFirst")}
               </button>
@@ -538,7 +546,8 @@ export default function App() {
     {!inLobby && <>
       <div className="room-layout">
         <div className="player-stage">
-          <div className="player-topbar">
+          <div className="player-topbar overlay-bar">
+            <div className="brand brand-mini"><span className="brand-mark">◆</span><span className="brand-name">retro<em>deck</em></span></div>
             <span className="player-pill"><span className={status.includes("Connected") ? "dot live" : "dot"} />{status.includes("Connected") ? t("live") : translate(lang, (statusKeys[status] as any) ?? "statusDisconnected")}</span>
             {playerNumber && <span className="player-pill accent">P{playerNumber}</span>}
             <span className="player-pill muted">{room}</span>
@@ -547,6 +556,7 @@ export default function App() {
                 {closingRoom ? t("closing") : t("closeRoom")}
               </button>
             )}
+            <LangToggle lang={lang} setLang={setLang} />
             <button className="icon-button" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <circle cx="12" cy="12" r="3.2" />
