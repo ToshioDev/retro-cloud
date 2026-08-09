@@ -95,6 +95,9 @@ const dict = {
   unmute: { en: "Unmute", es: "Activar sonido" },
   keyboardBindings: { en: "Keyboard bindings", es: "Controles de teclado" },
   pressAKey: { en: "press a key…", es: "presiona una tecla…" },
+  gamepad: { en: "Gamepad", es: "Control" },
+  gamepadHint: { en: "Connect a controller and press any button to activate it.", es: "Conectá un control y presioná cualquier botón para activarlo." },
+  pressAButton: { en: "press a button…", es: "presiona un botón…" },
 
   players: { en: "Players", es: "Jugadores" },
   host: { en: "Room host", es: "Dueño de la sala" },

@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 
 #include <dlfcn.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -51,6 +52,12 @@ struct Runtime {
     std::uint64_t audio_samples = 0;
     unsigned width = 0;
     unsigned height = 0;
+    // Fixed for the whole session once the first frame arrives: some cores (PS1's pcsx_rearmed, notably)
+    // change their per-frame width/height at runtime as games switch video modes, but the GStreamer/WebRTC
+    // appsrc caps are negotiated once. Every frame gets letterboxed into this canvas so the buffer size
+    // pushed downstream always matches what was negotiated, instead of silently corrupting/dropping frames.
+    unsigned canvas_width = 0;
+    unsigned canvas_height = 0;
     unsigned pixel_format = RETRO_PIXEL_FORMAT_XRGB8888;
     std::string system_directory;
     std::string save_directory;
@@ -131,12 +138,21 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
     }
     runtime.width = width;
     runtime.height = height;
-    runtime.framebuffer.resize(static_cast<std::size_t>(width) * height * 4);
-    for (unsigned row = 0; row < height; ++row) {
+    if (runtime.canvas_width == 0) {
+        runtime.canvas_width = std::max({runtime.av.geometry.max_width, width});
+        runtime.canvas_height = std::max({runtime.av.geometry.max_height, height});
+    }
+    const auto canvas_width = runtime.canvas_width;
+    const auto canvas_height = runtime.canvas_height;
+    // Defensive clamp: a core that under-reports geometry.max_width/max_height and later exceeds it would
+    // otherwise write past the canvas — clip to what the negotiated caps actually declared.
+    const auto draw_width = std::min(width, canvas_width);
+    runtime.framebuffer.assign(static_cast<std::size_t>(canvas_width) * canvas_height * 4, 0);
+    for (unsigned row = 0; row < height && row < canvas_height; ++row) {
         const auto *source = static_cast<const std::uint8_t *>(data) + static_cast<std::size_t>(row) * pitch;
-        auto *target = runtime.framebuffer.data() + static_cast<std::size_t>(row) * width * 4;
+        auto *target = runtime.framebuffer.data() + static_cast<std::size_t>(row) * canvas_width * 4;
         if (runtime.pixel_format == RETRO_PIXEL_FORMAT_XRGB8888) {
-            for (unsigned column = 0; column < width; ++column) {
+            for (unsigned column = 0; column < draw_width; ++column) {
                 target[column * 4] = source[column * 4 + 2];
                 target[column * 4 + 1] = source[column * 4 + 1];
                 target[column * 4 + 2] = source[column * 4];
@@ -144,7 +160,7 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
             }
             continue;
         }
-        for (unsigned column = 0; column < width; ++column) {
+        for (unsigned column = 0; column < draw_width; ++column) {
             const auto value = static_cast<std::uint16_t>(source[column * 2]) |
                                (static_cast<std::uint16_t>(source[column * 2 + 1]) << 8);
             if (runtime.pixel_format == RETRO_PIXEL_FORMAT_RGB565) {
@@ -162,7 +178,7 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
     if (!runtime.video_output_path.empty()) {
         if (!runtime.video_pipeline) runtime.video_pipeline = std::make_unique<GStreamerPipeline>();
         if (!runtime.video_pipeline->active()) {
-            runtime.video_pipeline->start(width, height, runtime.av.timing.fps > 1.0 ? runtime.av.timing.fps : 60.0,
+            runtime.video_pipeline->start(canvas_width, canvas_height, runtime.av.timing.fps > 1.0 ? runtime.av.timing.fps : 60.0,
                                           runtime.video_output_path, runtime.video_bitrate_kbps);
         }
         runtime.video_pipeline->push_rgba(runtime.framebuffer.data(), runtime.framebuffer.size(), runtime.frames);
@@ -172,7 +188,7 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
         if (!runtime.webrtc_pipeline->active()) {
             const unsigned sample_rate = runtime.av.timing.sample_rate > 1.0
                 ? static_cast<unsigned>(runtime.av.timing.sample_rate) : 48000;
-            runtime.webrtc_pipeline->start(width, height, runtime.av.timing.fps > 1.0 ? runtime.av.timing.fps : 60.0,
+            runtime.webrtc_pipeline->start(canvas_width, canvas_height, runtime.av.timing.fps > 1.0 ? runtime.av.timing.fps : 60.0,
                                            runtime.video_bitrate_kbps, sample_rate, runtime.signaling_client.get(), runtime.signaling_room,
                                            [](unsigned player_number, const std::string &button, bool pressed) {
                                                if (player_number == 0 || player_number > kMaxPlayers) return;

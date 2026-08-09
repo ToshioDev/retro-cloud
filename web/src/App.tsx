@@ -49,6 +49,22 @@ function loadKeyBindings(): Record<Button, string> {
   }
 }
 
+// Standard Gamepad API mapping (https://w3c.github.io/gamepad/#remapping): 0=A 1=B 4=LB 5=RB 8=Select
+// 9=Start 12-15=D-pad. Works the same for every console we stream — the emulator side only sees button
+// names over the data channel, so a bound gamepad plays PS1/NES/SNES rooms identically.
+const defaultGamepadBindings: Record<Button, number> = {
+  UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15, A: 0, B: 1, L: 4, R: 5, START: 9, SELECT: 8,
+};
+
+function loadGamepadBindings(): Record<Button, number> {
+  try {
+    const stored = JSON.parse(localStorage.getItem("rc_gamepad_bindings") ?? "{}");
+    return { ...defaultGamepadBindings, ...stored };
+  } catch {
+    return { ...defaultGamepadBindings };
+  }
+}
+
 const statusKeys: Record<string, string> = {
   Disconnected: "statusDisconnected",
   Connecting: "statusConnecting",
@@ -232,6 +248,12 @@ export default function App() {
   const [playerNumber, setPlayerNumber] = useState<number | null>(null);
   const [keyBindings, setKeyBindings] = useState<Record<Button, string>>(loadKeyBindings);
   const [rebinding, setRebinding] = useState<Button | null>(null);
+  const [gamepadBindings, setGamepadBindings] = useState<Record<Button, number>>(loadGamepadBindings);
+  const [rebindingGamepad, setRebindingGamepad] = useState<Button | null>(null);
+  const [gamepadConnected, setGamepadConnected] = useState(false);
+  const gamepadHeldRef = useRef<Set<Button>>(new Set());
+  const gamepadBindingsRef = useRef(gamepadBindings);
+  const rebindingGamepadRef = useRef<Button | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"display" | "audio" | "controls">("display");
   const [scale, setScale] = useState<string>(() => localStorage.getItem("rc_scale") ?? "fit");
@@ -861,6 +883,57 @@ export default function App() {
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [keyBindings, rebinding]);
+
+  useEffect(() => { gamepadBindingsRef.current = gamepadBindings; }, [gamepadBindings]);
+  useEffect(() => { rebindingGamepadRef.current = rebindingGamepad; }, [rebindingGamepad]);
+
+  useEffect(() => {
+    const onConnect = () => setGamepadConnected(true);
+    const onDisconnect = () => { if (navigator.getGamepads().every((gp) => !gp)) setGamepadConnected(false); };
+    window.addEventListener("gamepadconnected", onConnect);
+    window.addEventListener("gamepaddisconnected", onDisconnect);
+    if (navigator.getGamepads().some((gp) => gp)) setGamepadConnected(true);
+    return () => {
+      window.removeEventListener("gamepadconnected", onConnect);
+      window.removeEventListener("gamepaddisconnected", onDisconnect);
+    };
+  }, []);
+
+  // Polls the Gamepad API every frame — it has no press/release events, only a live snapshot — and either
+  // captures the next pressed button while rebinding, or forwards held/released buttons like the keyboard.
+  useEffect(() => {
+    if (status === "Disconnected") return;
+    let raf = 0;
+    const tick = () => {
+      const pad = navigator.getGamepads().find((gp) => gp && gp.connected);
+      if (pad) {
+        const rebindTarget = rebindingGamepadRef.current;
+        if (rebindTarget) {
+          const pressedIndex = pad.buttons.findIndex((b) => b.pressed || b.value > 0.5);
+          if (pressedIndex >= 0) {
+            const next = { ...gamepadBindingsRef.current, [rebindTarget]: pressedIndex };
+            setGamepadBindings(next);
+            localStorage.setItem("rc_gamepad_bindings", JSON.stringify(next));
+            setRebindingGamepad(null);
+          }
+        } else {
+          for (const button of buttons) {
+            const index = gamepadBindingsRef.current[button];
+            const gamepadButton = pad.buttons[index];
+            const pressed = !!gamepadButton && (gamepadButton.pressed || gamepadButton.value > 0.5);
+            const wasHeld = gamepadHeldRef.current.has(button);
+            if (pressed !== wasHeld) {
+              if (pressed) gamepadHeldRef.current.add(button); else gamepadHeldRef.current.delete(button);
+              sendInput(button, pressed);
+            }
+          }
+        }
+      }
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(raf);
+  }, [status]);
 
   const inLobby = status === "Disconnected";
 
@@ -1499,6 +1572,29 @@ export default function App() {
                     </li>
                   ))}
                 </ul>
+              </div>
+            )}
+
+            {settingsTab === "controls" && (
+              <div className="settings-section">
+                <p className="settings-label">
+                  <span className={gamepadConnected ? "gamepad-dot connected" : "gamepad-dot"} />
+                  {t("gamepad")} · P{playerNumber ?? 1}
+                </p>
+                {gamepadConnected ? (
+                  <ul className="keybind-list">
+                    {buttons.map((button) => (
+                      <li key={button} className="keybind-row">
+                        <span className="keybind-name">{button}</span>
+                        <button className="keybind-key" onClick={() => setRebindingGamepad(button)}>
+                          {rebindingGamepad === button ? t("pressAButton") : `#${gamepadBindings[button]}`}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="lobby-card-hint">{t("gamepadHint")}</p>
+                )}
               </div>
             )}
           </div>
