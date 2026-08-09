@@ -1998,8 +1998,8 @@ export default function App() {
 
     {!inLobby && <>
       <div className="room-layout">
-        <div className={`${isFullscreen ? "player-stage pseudo-fullscreen" : "player-stage"} ${isTouchDevice && !hudVisible ? "hud-hidden" : ""}`} ref={stageWrapRef} onClick={() => { if (isTouchDevice) flashHud(); }}>
-          <div className={`player-topbar overlay-bar ${isTouchDevice && !hudVisible ? "hud-hidden" : ""}`}>
+        <div className={`${isFullscreen ? "player-stage pseudo-fullscreen" : "player-stage"} ${!hudVisible ? "hud-hidden" : ""}`} ref={stageWrapRef} onClick={() => { if (isTouchDevice) flashHud(); }}>
+          <div className={`player-topbar overlay-bar ${!hudVisible ? "hud-hidden" : ""}`}>
             <div className="brand brand-mini"><span className="brand-mark">◆</span><span className="brand-name">retro<em>X</em></span></div>
             <div className="latency-wrap">
               <button
@@ -2007,7 +2007,7 @@ export default function App() {
                 onClick={() => setLatencyPopoverOpen((v) => !v)}
               >
                 <span className="latency-bars"><span /><span /><span /></span>
-                {!isTouchDevice && (reconnecting ? t("reconnecting") : status.includes("Connected") && rttMs !== null ? `${rttMs}ms` : "")}
+                {reconnecting ? t("reconnecting") : status.includes("Connected") && rttMs !== null ? `${rttMs}ms` : ""}
               </button>
               {latencyPopoverOpen && (
                 <>
@@ -2046,64 +2046,58 @@ export default function App() {
             >
               {roomCopied ? `✓ ${t("roomCodeCopied")}` : room}
             </button>
-            {!isTouchDevice && authUsername === roomOwner && (
-              <button className="btn-danger" onClick={closeRoom} disabled={closingRoom}>
+            {authUsername === roomOwner && (
+              <button className="btn-danger topbar-desktop-only" onClick={closeRoom} disabled={closingRoom}>
                 {closingRoom ? t("closing") : t("closeRoom")}
               </button>
             )}
-            {!isTouchDevice && (
-              <>
-                <button
-                  className={`icon-button ${crtEffect ? "active-toggle" : ""}`}
-                  aria-label={t("crtEffect")}
-                  title={t("crtEffect")}
-                  onClick={() => { setCrtEffect((v) => !v); playClickSound(); }}
-                >
-                  <IconTv active={crtEffect} />
-                </button>
-                <div className="lang-toggle-desktop"><LangToggle lang={lang} setLang={setLang} /></div>
-                <button className="icon-button fullscreen-toggle" aria-label={t("fullscreen")} onClick={toggleFullscreen}>
-                  <IconFullscreen active={isFullscreen} />
-                </button>
-                <button className="icon-button" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
-                    <circle cx="12" cy="12" r="3.2" />
-                    <path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.5-2.4 1a7.7 7.7 0 0 0-1.7-1L15 3h-4l-.3 2.3a7.7 7.7 0 0 0-1.7 1l-2.4-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7.7 7.7 0 0 0 1.7 1L9 21h4l.3-2.3a7.7 7.7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5Z" />
-                  </svg>
-                </button>
-              </>
-            )}
-            {isTouchDevice && (
-              <div className="overflow-wrap">
-                <button className="icon-button overflow-btn" aria-label="Menu" onClick={() => setOverflowOpen((v) => !v)}>
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" />
-                  </svg>
-                </button>
-                {overflowOpen && (
-                  <>
-                    <div className="popover-backdrop" onClick={() => setOverflowOpen(false)} />
-                    <div className="overflow-dropdown">
-                      <button className="overflow-item" onClick={() => { setCrtEffect((v) => !v); playClickSound(); setOverflowOpen(false); }}>
-                        <IconTv active={crtEffect} /> {t("crtEffect")}
+            <button
+              className={`icon-button topbar-desktop-only ${crtEffect ? "active-toggle" : ""}`}
+              aria-label={t("crtEffect")}
+              title={t("crtEffect")}
+              onClick={() => { setCrtEffect((v) => !v); playClickSound(); }}
+            >
+              <IconTv active={crtEffect} />
+            </button>
+            <div className="lang-toggle-desktop topbar-desktop-only"><LangToggle lang={lang} setLang={setLang} /></div>
+            <button className="icon-button fullscreen-toggle topbar-desktop-only" aria-label={t("fullscreen")} onClick={toggleFullscreen}>
+              <IconFullscreen active={isFullscreen} />
+            </button>
+            <button className="icon-button topbar-desktop-only" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <circle cx="12" cy="12" r="3.2" />
+                <path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.5-2.4 1a7.7 7.7 0 0 0-1.7-1L15 3h-4l-.3 2.3a7.7 7.7 0 0 0-1.7 1l-2.4-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7.7 7.7 0 0 0 1.7 1L9 21h4l.3-2.3a7.7 7.7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5Z" />
+              </svg>
+            </button>
+            <div className="overflow-wrap topbar-mobile-only">
+              <button className="icon-button overflow-btn" aria-label="Menu" onClick={() => setOverflowOpen((v) => !v)}>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" />
+                </svg>
+              </button>
+              {overflowOpen && (
+                <>
+                  <div className="popover-backdrop" onClick={() => setOverflowOpen(false)} />
+                  <div className="overflow-dropdown">
+                    <button className="overflow-item" onClick={() => { setCrtEffect((v) => !v); playClickSound(); setOverflowOpen(false); }}>
+                      <IconTv active={crtEffect} /> {t("crtEffect")}
+                    </button>
+                    <button className="overflow-item" onClick={() => { toggleFullscreen(); setOverflowOpen(false); }}>
+                      <IconFullscreen active={isFullscreen} /> {t("fullscreen")}
+                    </button>
+                    <button className="overflow-item" onClick={() => { setSettingsOpen(true); setOverflowOpen(false); }}>
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="3.2" /><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.5-2.4 1a7.7 7.7 0 0 0-1.7-1L15 3h-4l-.3 2.3a7.7 7.7 0 0 0-1.7 1l-2.4-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7.7 7.7 0 0 0 1.7 1L9 21h4l.3-2.3a7.7 7.7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5Z" /></svg>
+                      {t("settings")}
+                    </button>
+                    {authUsername === roomOwner && (
+                      <button className="overflow-item danger" onClick={() => { closeRoom(); setOverflowOpen(false); }} disabled={closingRoom}>
+                        {closingRoom ? t("closing") : t("closeRoom")}
                       </button>
-                      <button className="overflow-item" onClick={() => { toggleFullscreen(); setOverflowOpen(false); }}>
-                        <IconFullscreen active={isFullscreen} /> {t("fullscreen")}
-                      </button>
-                      <button className="overflow-item" onClick={() => { setSettingsOpen(true); setOverflowOpen(false); }}>
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="3.2" /><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.5-2.4 1a7.7 7.7 0 0 0-1.7-1L15 3h-4l-.3 2.3a7.7 7.7 0 0 0-1.7 1l-2.4-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7.7 7.7 0 0 0 1.7 1L9 21h4l.3-2.3a7.7 7.7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5Z" /></svg>
-                        {t("settings")}
-                      </button>
-                      {authUsername === roomOwner && (
-                        <button className="overflow-item danger" onClick={() => { closeRoom(); setOverflowOpen(false); }} disabled={closingRoom}>
-                          {closingRoom ? t("closing") : t("closeRoom")}
-                        </button>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           <div className={`stage stage-${scale === "fit" ? "fit" : "fixed"} ${crtEffect ? "crt-active" : ""}`}>
             <div

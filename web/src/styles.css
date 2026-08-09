@@ -677,6 +677,8 @@ button:disabled { cursor: progress; opacity: .55; }
 }
 .icon-button:hover { color: var(--cyan); border-color: var(--cyan-glow); transform: scale(1.05); }
 .icon-button.active-toggle { color: var(--cyan); border-color: var(--cyan); background: rgba(0, 168, 255, 0.15); box-shadow: 0 0 10px var(--cyan-glow); }
+.topbar-desktop-only { display: flex; }
+.topbar-mobile-only { display: none !important; }
 .overflow-wrap { position: relative; }
 .overflow-btn { pointer-events: auto; }
 .overflow-dropdown {
@@ -875,6 +877,8 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
 }
 
 @media (max-width: 900px) {
+  .topbar-desktop-only { display: none !important; }
+  .topbar-mobile-only { display: flex !important; }
   main:not(.in-room) { padding-bottom: 84px; margin-left: auto; width: min(880px, calc(100% - 32px)); }
   .side-rail { display: none; }
   .bottom-tab-bar {
@@ -976,11 +980,14 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
   .room-layout { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
   .player-stage { flex: 1; min-height: 0; }
 
-  /* HUD auto-hide */
+  /* HUD auto-hide - mobile only */
   .hud-hidden { opacity: 0; pointer-events: none; }
   .hud-hidden .touch-controls, .hud-hidden .mobile-panel-fab { opacity: 0; pointer-events: none; }
   .player-topbar { transition: opacity .3s ease; }
   .touch-controls { transition: opacity .3s ease; }
+  /* Desktop: no HUD auto-hide */
+  .hud-hidden { opacity: 1 !important; pointer-events: auto !important; }
+  .hud-hidden .touch-controls, .hud-hidden .mobile-panel-fab { opacity: 1; pointer-events: auto; }
 
   .player-topbar.overlay-bar {
     flex-wrap: wrap; gap: 6px;
