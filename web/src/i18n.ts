@@ -28,6 +28,11 @@ const dict = {
 
   roomsTab: { en: "Rooms", es: "Salas" },
   catalogTab: { en: "Catalog", es: "Catálogo" },
+  catalogTitle: { en: "Game catalog", es: "Catálogo de juegos" },
+  catalogSub: { en: "Browse the library and host a room straight from a title.", es: "Explora la biblioteca y crea una sala directo desde un juego." },
+  statLiveRooms: { en: "Live rooms", es: "Salas activas" },
+  statPlayersOnline: { en: "Players online", es: "Jugadores en línea" },
+  statPublicRooms: { en: "Public", es: "Públicas" },
   roomsInSession: { en: "Rooms in session", es: "Salas activas" },
   lobbySub: { en: "Jump into a friend's game, or spin up your own.", es: "Únete a la sala de un amigo o crea la tuya." },
   refresh: { en: "Refresh", es: "Actualizar" },

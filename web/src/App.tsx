@@ -547,18 +547,15 @@ export default function App() {
     {inLobby && (
       <header className="brand-header">
         <div className="brand"><span className="brand-mark">◆</span><span className="brand-name">retro<em>X</em></span></div>
+        <nav className="navbar-tabs">
+          <button className={lobbyView === "rooms" ? "navbar-tab active" : "navbar-tab"} onClick={() => setLobbyView("rooms")}>{t("roomsTab")}</button>
+          <button className={lobbyView === "catalog" ? "navbar-tab active" : "navbar-tab"} onClick={() => setLobbyView("catalog")}>{t("catalogTab")}</button>
+        </nav>
         <div className="header-right">
           <LangToggle lang={lang} setLang={setLang} />
           <span className="user-chip">{authUsername}<button className="link-button" onClick={logout}>{t("logOut")}</button></span>
         </div>
       </header>
-    )}
-
-    {inLobby && (
-      <nav className="lobby-tabs">
-        <button className={lobbyView === "rooms" ? "lobby-tab active" : "lobby-tab"} onClick={() => setLobbyView("rooms")}>{t("roomsTab")}</button>
-        <button className={lobbyView === "catalog" ? "lobby-tab active" : "lobby-tab"} onClick={() => setLobbyView("catalog")}>{t("catalogTab")}</button>
-      </nav>
     )}
 
     {inLobby && lobbyView === "rooms" && (
@@ -569,6 +566,21 @@ export default function App() {
             <p className="lobby-sub">{t("lobbySub")}</p>
           </div>
           <button className="btn-ghost" onClick={() => { void fetch(roomsUrl, { headers: authToken ? { authorization: `Bearer ${authToken}` } : {} }).then((r) => r.json()).then((d) => setActiveRooms(d.rooms)).catch(() => setActiveRooms([])); }}><IconRefresh /> {t("refresh")}</button>
+        </div>
+
+        <div className="stat-strip">
+          <div className="stat-card">
+            <span className="stat-value">{activeRooms.length}</span>
+            <span className="stat-label">{t("statLiveRooms")}</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-value">{activeRooms.reduce((sum, r) => sum + r.peerCount, 0)}</span>
+            <span className="stat-label">{t("statPlayersOnline")}</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-value">{activeRooms.filter((r) => r.visibility !== "private").length}</span>
+            <span className="stat-label">{t("statPublicRooms")}</span>
+          </div>
         </div>
 
         {activeRooms.length === 0 ? (
@@ -586,8 +598,11 @@ export default function App() {
                   <span className="room-card-id">{entry.room}</span>
                   {entry.visibility === "private" && <span className="visibility-tag"><IconLock /> {t("private")}</span>}
                 </div>
-                <div className="room-card-meta">
+                <div className="room-card-owner">
+                  <span className="roster-avatar small">{(entry.owner ?? "?").slice(0, 1).toUpperCase()}</span>
                   <span>{entry.owner ? `${t("hostedBy")} ${entry.owner}` : t("unowned")}</span>
+                </div>
+                <div className="room-card-meta">
                   <span className="room-card-players">{entry.peerCount} {t("playing")}</span>
                 </div>
                 <span className="room-card-cta">{t("joinRoomCta")}</span>
@@ -614,6 +629,12 @@ export default function App() {
 
     {inLobby && lobbyView === "catalog" && (
       <section className="lobby">
+        <div className="lobby-head">
+          <div>
+            <h2>{t("catalogTitle")}</h2>
+            <p className="lobby-sub">{t("catalogSub")}</p>
+          </div>
+        </div>
         <div className="lobby-split">
           <div className="lobby-games">
             <p className="form-label showcase-label">{t("chooseRom")}</p>

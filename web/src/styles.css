@@ -91,9 +91,6 @@ button:disabled { cursor: progress; opacity: .55; }
 }
 
 /* Lobby */
-.lobby-tabs { display: flex; gap: 6px; padding: 4px; margin-bottom: 8px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); width: fit-content; }
-.lobby-tab { padding: 8px 18px; font-size: 13px; font-weight: 600; background: transparent; border: none; color: var(--mist); border-radius: 9px; }
-.lobby-tab.active { background: var(--signal); color: #fff; }
 .lobby { padding: 8px 0; }
 .lobby-head { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 22px; }
 .lobby-head h2 { margin: 0 0 4px; font-family: var(--font-display); font-size: 22px; font-weight: 600; }
@@ -113,9 +110,20 @@ button:disabled { cursor: progress; opacity: .55; }
 .visibility-option { flex: 1; padding: 8px; font-size: 12px; background: var(--panel-raised); display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
 .visibility-option.active { background: var(--signal-dim); border-color: var(--signal); color: #d9cfff; font-weight: 600; }
 .room-card-id { font-family: var(--font-mono); font-size: 13px; color: var(--paper); letter-spacing: .02em; }
+.room-card-owner { display: flex; align-items: center; gap: 8px; color: var(--mist); font-size: 12px; }
 .room-card-meta { display: flex; flex-direction: column; gap: 3px; color: var(--mist); font-size: 12px; }
 .room-card-players { color: var(--paper); }
 .room-card-cta { color: var(--signal); font-size: 13px; font-weight: 600; }
+
+/* Navbar tabs + stat strip */
+.navbar-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); }
+.navbar-tab { padding: 8px 20px; font-size: 13px; font-weight: 600; background: transparent; border: none; color: var(--mist); border-radius: 999px; }
+.navbar-tab.active { background: var(--signal); color: #fff; }
+
+.stat-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+.stat-card { padding: 14px 16px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
+.stat-value { font-family: var(--font-display); font-size: 24px; font-weight: 600; color: var(--paper); }
+.stat-label { font-size: 12px; color: var(--mist); }
 
 /* Lobby: showcase + action sidebar */
 .lobby-split { display: grid; grid-template-columns: 1fr 280px; gap: 20px; align-items: start; margin-top: 8px; }
@@ -282,6 +290,7 @@ video { image-rendering: pixelated; position: relative; z-index: 1; display: blo
   flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   background: linear-gradient(160deg, var(--signal), var(--signal-dim)); color: #fff; font-family: var(--font-display); font-weight: 600; font-size: 13px;
 }
+.roster-avatar.small { width: 20px; height: 20px; font-size: 10px; }
 .roster-name { color: var(--paper); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .roster-you { color: var(--mist); font-weight: 400; }
 .host-badge { flex-shrink: 0; display: flex; color: #f5c344; }
@@ -346,6 +355,8 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
   .settings-panel { width: 100%; }
   .player-topbar.overlay-bar { flex-wrap: wrap; padding: 10px 12px; gap: 6px; }
   .brand-mini { display: none; }
-  .lobby-tabs { width: 100%; }
-  .lobby-tab { flex: 1; text-align: center; }
+  .navbar-tabs { width: 100%; }
+  .navbar-tab { flex: 1; text-align: center; }
+  .stat-strip { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat-value { font-size: 18px; }
 }
