@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { type Lang, loadLang, translate } from "./i18n";
 
 type SignalMessage = { type: string; room?: string; from?: string; payload?: any };
-type Button = "UP" | "DOWN" | "LEFT" | "RIGHT" | "A" | "B" | "START" | "SELECT";
+type Button = "UP" | "DOWN" | "LEFT" | "RIGHT" | "A" | "B" | "START" | "SELECT" | "L" | "R";
 type RosterEntry = { peerId: string; playerNumber: number; username: string };
 type ChatMessage = { username: string; playerNumber?: number; text: string; timestamp: number };
-type RomEntry = { file: string; game: "nes" | "snes"; size: number };
+type RomEntry = { file: string; game: "nes" | "snes"; size: number; owner: string | null };
 
 const signalingUrl = import.meta.env.VITE_SIGNALING_URL ?? "ws://localhost:8080/signaling";
 const apiBase = signalingUrl.replace(/^ws/, "http").replace(/\/signaling\/?$/, "");
@@ -13,10 +13,10 @@ const roomsUrl = `${apiBase}/rooms`;
 const romsUrl = `${apiBase}/roms`;
 const defaultRoom = import.meta.env.VITE_ROOM ?? "";
 type ActiveRoom = { room: string; peerCount: number; owner: string | null; visibility?: "public" | "private" };
-const buttons: Button[] = ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "START", "SELECT"];
+const buttons: Button[] = ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "L", "R", "START", "SELECT"];
 const defaultKeyBindings: Record<Button, string> = {
   UP: "ArrowUp", DOWN: "ArrowDown", LEFT: "ArrowLeft", RIGHT: "ArrowRight",
-  A: "z", B: "x", START: "Enter", SELECT: "Shift",
+  A: "z", B: "x", L: "q", R: "w", START: "Enter", SELECT: "Shift",
 };
 
 function loadKeyBindings(): Record<Button, string> {
@@ -42,6 +42,38 @@ const mediaKeys: Record<string, string> = {
   "Receiving media": "receivingMedia",
   "Game server disconnected": "gameServerDisconnected",
 };
+
+function IconLock() {
+  return <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </svg>;
+}
+function IconGlobe() {
+  return <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18Z" />
+  </svg>;
+}
+function IconCrown() {
+  return <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+    <path d="M4 18h16l1-9-5 3-4-6-4 6-5-3 1 9Z" />
+  </svg>;
+}
+function IconClose() {
+  return <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="M6 6l12 12M18 6L6 18" />
+  </svg>;
+}
+function IconVolume({ muted }: { muted: boolean }) {
+  return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 9v6h4l5 4V5L8 9H4Z" />
+    {muted ? <path d="M16 9l5 6M21 9l-5 6" /> : <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a9 9 0 0 1 0 12" />}
+  </svg>;
+}
+function IconRefresh() {
+  return <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 4v5h5M20 20v-5h-5" /><path d="M5.5 9A7 7 0 0 1 19 8M18.5 15a7 7 0 0 1-13.5 1" />
+  </svg>;
+}
 
 function LangToggle({ lang, setLang }: { lang: Lang; setLang: (lang: Lang) => void }) {
   return (
@@ -94,6 +126,8 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const [rttMs, setRttMs] = useState<number | null>(null);
+  const statsIntervalRef = useRef<number | null>(null);
   const myPeerIdRef = useRef<string | null>(null);
   const hostPeerIdRef = useRef<string | null>(null);
   const playerNumberRef = useRef<number>(1);
@@ -102,6 +136,7 @@ export default function App() {
     inputRef.current?.close();
     peerRef.current?.close();
     socketRef.current?.close();
+    if (statsIntervalRef.current) window.clearInterval(statsIntervalRef.current);
   }, []);
 
   useEffect(() => {
@@ -125,7 +160,7 @@ export default function App() {
 
   async function refreshRoms() {
     try {
-      const response = await fetch(romsUrl);
+      const response = await fetch(romsUrl, { headers: authToken ? { authorization: `Bearer ${authToken}` } : {} });
       const data = await response.json() as { roms: RomEntry[] };
       setRoms(data.roms);
       setSelectedRom((current) => current && data.roms.some((r) => r.file === current) ? current : data.roms[0]?.file ?? null);
@@ -134,10 +169,16 @@ export default function App() {
     }
   }
 
+  async function deleteRom(file: string) {
+    if (!authToken) return;
+    await fetch(`${romsUrl}/${encodeURIComponent(file)}`, { method: "DELETE", headers: { authorization: `Bearer ${authToken}` } }).catch(() => {});
+    await refreshRoms();
+  }
+
   useEffect(() => {
     if (status !== "Disconnected") return;
     void refreshRoms();
-  }, [status]);
+  }, [status, authToken]);
 
   async function uploadRom(file: File) {
     if (!authToken) return;
@@ -195,8 +236,23 @@ export default function App() {
     };
     peer.onconnectionstatechange = () => {
       const state = peer.connectionState;
-      if (state === "connected") setStatus("WebRTC connected");
+      if (state === "connected") {
+        setStatus("WebRTC connected");
+        if (statsIntervalRef.current) window.clearInterval(statsIntervalRef.current);
+        statsIntervalRef.current = window.setInterval(async () => {
+          const stats = await peer.getStats();
+          stats.forEach((report) => {
+            if (report.type === "candidate-pair" && report.state === "succeeded" && typeof report.currentRoundTripTime === "number") {
+              setRttMs(Math.round(report.currentRoundTripTime * 1000));
+            }
+          });
+        }, 2000);
+      }
       if (state === "failed") setStatus("WebRTC failed");
+      if (state === "closed" || state === "failed" || state === "disconnected") {
+        if (statsIntervalRef.current) { window.clearInterval(statsIntervalRef.current); statsIntervalRef.current = null; }
+        setRttMs(null);
+      }
     };
     peer.onicecandidate = (event) => {
       if (event.candidate && socket.readyState === WebSocket.OPEN && hostPeerIdRef.current) {
@@ -253,7 +309,11 @@ export default function App() {
       }
     };
     socket.onerror = () => setStatus("Signaling error");
-    socket.onclose = () => { setStatus("Disconnected"); socketRef.current = null; peerRef.current?.close(); peerRef.current = null; };
+    socket.onclose = () => {
+      setStatus("Disconnected"); socketRef.current = null; peerRef.current?.close(); peerRef.current = null;
+      if (statsIntervalRef.current) { window.clearInterval(statsIntervalRef.current); statsIntervalRef.current = null; }
+      setRttMs(null);
+    };
   }
 
   async function submitAuth() {
@@ -457,7 +517,7 @@ export default function App() {
             <h2>{t("roomsInSession")}</h2>
             <p className="lobby-sub">{t("lobbySub")}</p>
           </div>
-          <button className="btn-ghost" onClick={() => { void fetch(roomsUrl, { headers: authToken ? { authorization: `Bearer ${authToken}` } : {} }).then((r) => r.json()).then((d) => setActiveRooms(d.rooms)).catch(() => setActiveRooms([])); }}>{t("refresh")}</button>
+          <button className="btn-ghost" onClick={() => { void fetch(roomsUrl, { headers: authToken ? { authorization: `Bearer ${authToken}` } : {} }).then((r) => r.json()).then((d) => setActiveRooms(d.rooms)).catch(() => setActiveRooms([])); }}><IconRefresh /> {t("refresh")}</button>
         </div>
 
         {activeRooms.length === 0 ? (
@@ -473,7 +533,7 @@ export default function App() {
                 <div className="room-card-top">
                   <span className="live-pulse" />
                   <span className="room-card-id">{entry.room}</span>
-                  {entry.visibility === "private" && <span className="visibility-tag">🔒 {t("private")}</span>}
+                  {entry.visibility === "private" && <span className="visibility-tag"><IconLock /> {t("private")}</span>}
                 </div>
                 <div className="room-card-meta">
                   <span>{entry.owner ? `${t("hostedBy")} ${entry.owner}` : t("unowned")}</span>
@@ -497,15 +557,27 @@ export default function App() {
             ) : (
               <div className="game-showcase">
                 {roms.map((rom) => (
-                  <button
+                  <div
                     key={rom.file}
+                    role="button"
+                    tabIndex={0}
                     className={selectedRom === rom.file ? "game-tile active" : "game-tile"}
                     onClick={() => setSelectedRom(rom.file)}
+                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedRom(rom.file); }}
                   >
+                    {rom.owner === authUsername && (
+                      <button
+                        className="game-tile-delete"
+                        aria-label={t("deleteRom")}
+                        onClick={(event) => { event.stopPropagation(); void deleteRom(rom.file); }}
+                      >
+                        <IconClose />
+                      </button>
+                    )}
                     <span className="game-tile-glyph">{rom.game === "nes" ? "▮▮" : "▮▮▮"}</span>
                     <span className="game-tile-label">{rom.file}</span>
-                    <span className="game-tile-blurb">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</span>
-                  </button>
+                    <span className="game-tile-blurb">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB{!rom.owner && ` · ${t("shared")}`}</span>
+                  </div>
                 ))}
               </div>
             )}
@@ -515,8 +587,8 @@ export default function App() {
             <div className="lobby-card">
               <p className="form-label">{t("hostThisRom")}</p>
               <div className="visibility-toggle" role="group" aria-label={t("visibility")}>
-                <button className={newRoomVisibility === "public" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("public")}>🌐 {t("public")}</button>
-                <button className={newRoomVisibility === "private" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("private")}>🔒 {t("private")}</button>
+                <button className={newRoomVisibility === "public" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("public")}><IconGlobe /> {t("public")}</button>
+                <button className={newRoomVisibility === "private" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("private")}><IconLock /> {t("private")}</button>
               </div>
               <span className="lobby-card-hint">{newRoomVisibility === "public" ? t("publicHint") : t("privateHint")}</span>
               <button className="btn-primary lobby-card-cta" onClick={createRoom} disabled={creating || !selectedRom}>
@@ -564,7 +636,10 @@ export default function App() {
         <div className="player-stage">
           <div className="player-topbar overlay-bar">
             <div className="brand brand-mini"><span className="brand-mark">◆</span><span className="brand-name">retro<em>deck</em></span></div>
-            <span className="player-pill"><span className={status.includes("Connected") ? "dot live" : "dot"} />{status.includes("Connected") ? t("live") : translate(lang, (statusKeys[status] as any) ?? "statusDisconnected")}</span>
+            <span className={`latency-pill ${status.includes("Connected") ? (rttMs === null ? "pending" : rttMs < 80 ? "good" : rttMs < 150 ? "ok" : "bad") : "down"}`}>
+              <span className="latency-bars"><span /><span /><span /></span>
+              {status.includes("Connected") ? (rttMs !== null ? `${rttMs} ms` : t("live")) : translate(lang, (statusKeys[status] as any) ?? "statusDisconnected")}
+            </span>
             {playerNumber && <span className="player-pill accent">P{playerNumber}</span>}
             <span className="player-pill muted">{room}</span>
             {authUsername === roomOwner && (
@@ -600,13 +675,13 @@ export default function App() {
               <li className="roster-row">
                 <span className="roster-avatar">{(authUsername ?? "?").slice(0, 1).toUpperCase()}</span>
                 <span className="roster-name">{authUsername} <span className="roster-you">({t("you")})</span></span>
-                {(playerNumber ?? 1) === 1 ? <span className="host-badge" title={t("host")}>👑</span> : <span className="roster-tag">P{playerNumber ?? 1}</span>}
+                {(playerNumber ?? 1) === 1 ? <span className="host-badge" title={t("host")}><IconCrown /></span> : <span className="roster-tag">P{playerNumber ?? 1}</span>}
               </li>
               {roster.map((entry) => (
                 <li key={entry.peerId} className="roster-row">
                   <span className="roster-avatar">{entry.username.slice(0, 1).toUpperCase()}</span>
                   <span className="roster-name">{entry.username}</span>
-                  {entry.playerNumber === 1 ? <span className="host-badge" title={t("host")}>👑</span> : <span className="roster-tag">P{entry.playerNumber}</span>}
+                  {entry.playerNumber === 1 ? <span className="host-badge" title={t("host")}><IconCrown /></span> : <span className="roster-tag">P{entry.playerNumber}</span>}
                 </li>
               ))}
             </ul>
@@ -643,7 +718,7 @@ export default function App() {
           <div className="settings-panel" onClick={(event) => event.stopPropagation()}>
             <div className="settings-head">
               <h2>{t("settings")}</h2>
-              <button className="icon-button" aria-label="Close" onClick={() => setSettingsOpen(false)}>✕</button>
+              <button className="icon-button" aria-label="Close" onClick={() => setSettingsOpen(false)}><IconClose /></button>
             </div>
             <div className="settings-tabs">
               <button className={settingsTab === "display" ? "tab active" : "tab"} onClick={() => setSettingsTab("display")}>{t("display")}</button>
@@ -666,7 +741,7 @@ export default function App() {
               <div className="settings-section">
                 <p className="settings-label">{t("volume")}</p>
                 <div className="volume-row">
-                  <button className="icon-button" aria-label={muted ? t("unmute") : t("mute")} onClick={() => setMuted((v) => !v)}>{muted ? "🔇" : "🔊"}</button>
+                  <button className="icon-button" aria-label={muted ? t("unmute") : t("mute")} onClick={() => setMuted((v) => !v)}><IconVolume muted={muted} /></button>
                   <input
                     className="volume-slider"
                     type="range"

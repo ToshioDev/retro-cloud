@@ -28,7 +28,7 @@ const dict = {
 
   roomsInSession: { en: "Rooms in session", es: "Salas activas" },
   lobbySub: { en: "Jump into a friend's game, or spin up your own.", es: "Únete a la sala de un amigo o crea la tuya." },
-  refresh: { en: "↻ Refresh", es: "↻ Actualizar" },
+  refresh: { en: "Refresh", es: "Actualizar" },
   noRoomsOnline: { en: "No rooms online right now.", es: "No hay salas activas por ahora." },
   createOneBelow: { en: "Create one below and you'll be P1.", es: "Crea una abajo y serás P1." },
   hostedBy: { en: "hosted by", es: "creada por" },
@@ -71,6 +71,8 @@ const dict = {
   private: { en: "Private", es: "Privada" },
   publicHint: { en: "Anyone can see and join this room from the lobby.", es: "Cualquiera puede verla y unirse desde el lobby." },
   privateHint: { en: "Hidden from the room list — only joinable with the room code.", es: "Oculta de la lista — solo se puede entrar con el código." },
+  deleteRom: { en: "Delete ROM", es: "Eliminar ROM" },
+  shared: { en: "shared", es: "compartida" },
   you: { en: "you", es: "tú" },
   chat: { en: "Chat", es: "Chat" },
   sayHi: { en: "Say hi to the room.", es: "Saluda a la sala." },

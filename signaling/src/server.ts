@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { randomUUID, randomBytes } from "node:crypto";
-import { readdir, stat, rename, unlink } from "node:fs/promises";
+import { readdir, stat, rename, unlink, readFile, writeFile } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import { join, basename, extname } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
@@ -17,7 +17,7 @@ type SignalMessage = {
   payload?: unknown;
 };
 
-type Peer = { id: string; room?: string; role?: string; playerNumber?: number; username?: string; socket: WebSocket };
+type Peer = { id: string; room?: string; role?: string; playerNumber?: number; username?: string; socket: WebSocket; alive: boolean };
 type RoomState = { nextPlayerNumber: number };
 
 const port = Number(process.env.PORT ?? 8080);
@@ -39,20 +39,50 @@ function gameForExtension(filename: string): string | null {
   return extensionToGame[extname(filename).toLowerCase()] ?? null;
 }
 
-async function listRoms(): Promise<Array<{ file: string; game: string; size: number }>> {
+const romOwnersFile = join(romsLocalDir, ".owners.json");
+let romOwnersCache: Record<string, string> | null = null;
+
+async function loadRomOwners(): Promise<Record<string, string>> {
+  if (romOwnersCache) return romOwnersCache;
+  try {
+    romOwnersCache = JSON.parse(await readFile(romOwnersFile, "utf8"));
+  } catch {
+    romOwnersCache = {};
+  }
+  return romOwnersCache!;
+}
+
+async function setRomOwner(file: string, owner: string): Promise<void> {
+  const owners = await loadRomOwners();
+  owners[file] = owner;
+  romOwnersCache = owners;
+  await writeFile(romOwnersFile, JSON.stringify(owners, null, 2)).catch(() => {});
+}
+
+async function clearRomOwner(file: string): Promise<void> {
+  const owners = await loadRomOwners();
+  delete owners[file];
+  romOwnersCache = owners;
+  await writeFile(romOwnersFile, JSON.stringify(owners, null, 2)).catch(() => {});
+}
+
+async function listRoms(requester?: string): Promise<Array<{ file: string; game: string; size: number; owner: string | null }>> {
   let entries: string[];
   try {
     entries = await readdir(romsLocalDir);
   } catch {
     return [];
   }
-  const roms: Array<{ file: string; game: string; size: number }> = [];
+  const owners = await loadRomOwners();
+  const roms: Array<{ file: string; game: string; size: number; owner: string | null }> = [];
   for (const entry of entries) {
     const game = gameForExtension(entry);
     if (!game) continue;
+    const owner = owners[entry] ?? null;
+    if (owner && owner !== requester) continue;
     try {
       const info = await stat(join(romsLocalDir, entry));
-      if (info.isFile()) roms.push({ file: entry, game, size: info.size });
+      if (info.isFile()) roms.push({ file: entry, game, size: info.size, owner });
     } catch {
       // skip unreadable entries
     }
@@ -176,10 +206,35 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     return;
   }
   if (request.method === "GET" && request.url === "/roms") {
-    listRoms().then((roms) => {
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify({ roms }));
-    });
+    const requester = await auth.usernameForToken(bearerToken(request));
+    const roms = await listRoms(requester);
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ roms }));
+    return;
+  }
+  if (request.method === "DELETE" && request.url?.startsWith("/roms/")) {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const file = basename(decodeURIComponent(request.url.slice("/roms/".length).split("?")[0]));
+    const owners = await loadRomOwners();
+    if (owners[file] !== username) {
+      response.writeHead(403, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "you can only delete ROMs you uploaded" }));
+      return;
+    }
+    try {
+      await unlink(join(romsLocalDir, file));
+      await clearRomOwner(file);
+      response.writeHead(204);
+      response.end();
+    } catch (error) {
+      response.writeHead(500, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to delete ROM" }));
+    }
     return;
   }
   if (request.method === "POST" && (request.url === "/roms" || request.url?.startsWith("/roms?"))) {
@@ -214,10 +269,11 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     out.on("finish", () => {
       if (aborted) return;
       rename(tmpPath, finalPath)
-        .then(() => {
+        .then(async () => {
+          await setRomOwner(requestedName, username);
           console.log(`[SIGNALING] ${username} uploaded ROM ${requestedName} (${receivedBytes} bytes)`);
           response.writeHead(201, { "content-type": "application/json" });
-          response.end(JSON.stringify({ file: requestedName, game, size: receivedBytes }));
+          response.end(JSON.stringify({ file: requestedName, game, size: receivedBytes, owner: username }));
         })
         .catch((error) => {
           response.writeHead(500, { "content-type": "application/json" });
@@ -274,7 +330,7 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     }
     readJsonBody<{ file?: string; visibility?: string }>(request)
       .then(async (body) => {
-        const roms = await listRoms();
+        const roms = await listRoms(username);
         const rom = roms.find((entry) => entry.file === body.file) ?? roms[0];
         if (!rom) throw new Error("no ROMs available: upload one first");
         const visibility = body.visibility === "private" ? "private" : "public";
@@ -345,9 +401,10 @@ function broadcastAll(room: string, message: SignalMessage) {
 }
 
 webSockets.on("connection", (socket) => {
-  const peer: Peer = { id: randomUUID(), socket };
+  const peer: Peer = { id: randomUUID(), socket, alive: true };
   peers.set(peer.id, peer);
   console.log(`[SIGNALING] connected ${peer.id}`);
+  socket.on("pong", () => { peer.alive = true; });
 
   socket.on("message", (raw) => {
     let message: SignalMessage;
@@ -359,6 +416,7 @@ webSockets.on("connection", (socket) => {
     }
     if (!["join", "offer", "answer", "candidate", "leave", "chat"].includes(message.type)) return;
     if (message.type === "join") {
+      if (peer.room) return; // ignore duplicate join on an already-registered connection
       const room = typeof message.room === "string" && message.room.length <= 128 ? message.room : "default";
       peer.room = room;
       peer.role = message.role === "host" ? "host" : "player";
@@ -416,5 +474,16 @@ webSockets.on("connection", (socket) => {
     }
   });
 });
+
+setInterval(() => {
+  for (const peer of peers.values()) {
+    if (!peer.alive) {
+      peer.socket.terminate();
+      continue;
+    }
+    peer.alive = false;
+    peer.socket.ping();
+  }
+}, 30_000);
 
 httpServer.listen(port, () => console.log(`[SIGNALING] listening on :${port}`));

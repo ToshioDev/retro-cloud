@@ -27,7 +27,7 @@ using json = nlohmann::json;
 namespace {
 
 constexpr unsigned kMaxPlayers = 4;
-std::atomic<bool> button_state[kMaxPlayers][10] = {};
+std::atomic<bool> button_state[kMaxPlayers][12] = {};
 
 int button_id(const std::string &button) {
     if (button == "B") return RETRO_DEVICE_ID_JOYPAD_B;
@@ -38,6 +38,8 @@ int button_id(const std::string &button) {
     if (button == "DOWN") return RETRO_DEVICE_ID_JOYPAD_DOWN;
     if (button == "LEFT") return RETRO_DEVICE_ID_JOYPAD_LEFT;
     if (button == "RIGHT") return RETRO_DEVICE_ID_JOYPAD_RIGHT;
+    if (button == "L") return RETRO_DEVICE_ID_JOYPAD_L;
+    if (button == "R") return RETRO_DEVICE_ID_JOYPAD_R;
     return -1;
 }
 
@@ -179,7 +181,7 @@ void audio_sample(int16_t, int16_t) { ++runtime.audio_samples; }
 void input_poll() {}
 
 int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
-    if (port >= kMaxPlayers || device != RETRO_DEVICE_JOYPAD || index != 0 || id >= 10) return 0;
+    if (port >= kMaxPlayers || device != RETRO_DEVICE_JOYPAD || index != 0 || id >= 12) return 0;
     return button_state[port][id].load() ? 1 : 0;
 }
 
