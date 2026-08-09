@@ -52,6 +52,7 @@ struct Runtime {
     void *library = nullptr;
     retro_system_av_info av{};
     std::vector<std::uint8_t> framebuffer;
+    std::vector<std::uint8_t> framebuffer_scaled;
     std::uint64_t frames = 0;
     std::uint64_t audio_samples = 0;
     unsigned width = 0;
@@ -192,20 +193,36 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
             target[column * 4 + 3] = 255;
         }
     }
+    // Retro framebuffers (NES ~256x240, SNES ~256x224, PS1 ~320x240) are tiny by modern display standards.
+    // Streaming them at native size and letting the browser stretch a handful of source pixels across a
+    // widescreen monitor looks soft even with pixelated rendering. Nearest-neighbor upscaling here instead
+    // means the encoder is actually working with — and the client actually receives — more real pixels,
+    // while staying perfectly crisp (each source pixel becomes a clean block, never blurred/interpolated).
+    constexpr unsigned kUpscaleFactor = 2;
+    const auto scaled_width = canvas_width * kUpscaleFactor;
+    const auto scaled_height = canvas_height * kUpscaleFactor;
+    runtime.framebuffer_scaled.resize(static_cast<std::size_t>(scaled_width) * scaled_height * 4);
+    for (unsigned row = 0; row < scaled_height; ++row) {
+        const auto *source_row = runtime.framebuffer.data() + static_cast<std::size_t>(row / kUpscaleFactor) * canvas_width * 4;
+        auto *target_row = runtime.framebuffer_scaled.data() + static_cast<std::size_t>(row) * scaled_width * 4;
+        for (unsigned column = 0; column < scaled_width; ++column) {
+            std::memcpy(target_row + column * 4, source_row + (column / kUpscaleFactor) * 4, 4);
+        }
+    }
     if (!runtime.video_output_path.empty()) {
         if (!runtime.video_pipeline) runtime.video_pipeline = std::make_unique<GStreamerPipeline>();
         if (!runtime.video_pipeline->active()) {
-            runtime.video_pipeline->start(canvas_width, canvas_height, runtime.av.timing.fps > 1.0 ? runtime.av.timing.fps : 60.0,
+            runtime.video_pipeline->start(scaled_width, scaled_height, runtime.av.timing.fps > 1.0 ? runtime.av.timing.fps : 60.0,
                                           runtime.video_output_path, runtime.video_bitrate_kbps);
         }
-        runtime.video_pipeline->push_rgba(runtime.framebuffer.data(), runtime.framebuffer.size(), runtime.frames);
+        runtime.video_pipeline->push_rgba(runtime.framebuffer_scaled.data(), runtime.framebuffer_scaled.size(), runtime.frames);
     }
     if (runtime.webrtc_debug) {
         if (!runtime.webrtc_pipeline) runtime.webrtc_pipeline = std::make_unique<WebRtcPipeline>();
         if (!runtime.webrtc_pipeline->active()) {
             const unsigned sample_rate = runtime.av.timing.sample_rate > 1.0
                 ? static_cast<unsigned>(runtime.av.timing.sample_rate) : 48000;
-            runtime.webrtc_pipeline->start(canvas_width, canvas_height, runtime.av.timing.fps > 1.0 ? runtime.av.timing.fps : 60.0,
+            runtime.webrtc_pipeline->start(scaled_width, scaled_height, runtime.av.timing.fps > 1.0 ? runtime.av.timing.fps : 60.0,
                                            runtime.video_bitrate_kbps, sample_rate, runtime.signaling_client.get(), runtime.signaling_room,
                                            [](unsigned player_number, const std::string &button, bool pressed) {
                                                if (player_number == 0 || player_number > kMaxPlayers) return;
@@ -213,7 +230,7 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
                                                if (id >= 0) button_state[player_number - 1][id] = pressed;
                                            });
         }
-        runtime.webrtc_pipeline->push_rgba(runtime.framebuffer.data(), runtime.framebuffer.size(), runtime.frames);
+        runtime.webrtc_pipeline->push_rgba(runtime.framebuffer_scaled.data(), runtime.framebuffer_scaled.size(), runtime.frames);
     }
     ++runtime.frames;
 }
@@ -316,7 +333,9 @@ int main() {
         const std::uint64_t frame_dump_frame = static_cast<std::uint64_t>(std::stoull(env_or("FRAME_DUMP_FRAME", "1")));
         const std::string frame_dump_path = env_or("FRAME_DUMP_PATH", "");
         runtime.video_output_path = env_or("VIDEO_OUTPUT_PATH", "");
-        runtime.video_bitrate_kbps = bitrate_kbps(env_or("VIDEO_BITRATE", "2M"));
+        // A bit higher than before: the stream is now encoded at 2x the core's native resolution (see the
+        // upscale in video_refresh), so there are more real pixels to carry for the same visual quality.
+        runtime.video_bitrate_kbps = bitrate_kbps(env_or("VIDEO_BITRATE", "3M"));
         runtime.webrtc_debug = env_or("WEBRTC_DEBUG", "0") == "1";
         runtime.signaling_url = env_or("SIGNALING_URL", "ws://signaling:8080/signaling");
         runtime.system_directory = env_or("SYSTEM_DIRECTORY", "/system");

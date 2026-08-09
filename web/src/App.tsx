@@ -1522,7 +1522,9 @@ export default function App() {
               <div className="settings-section">
                 <p className="settings-label">{t("fieldOfView")}</p>
                 <div className="scale-options">
-                  {[["fit", "Fit"], ["1", "1×"], ["2", "2×"], ["3", "3×"]].map(([value, label]) => (
+                  {[["fit", t("fitScreen")], ["1", intrinsicSize ? `${intrinsicSize.w}×${intrinsicSize.h}` : "1×"],
+                    ["2", intrinsicSize ? `${intrinsicSize.w * 2}×${intrinsicSize.h * 2}` : "2×"],
+                    ["3", intrinsicSize ? `${intrinsicSize.w * 3}×${intrinsicSize.h * 3}` : "3×"]].map(([value, label]) => (
                     <button key={value} className={scale === value ? "scale-option active" : "scale-option"} onClick={() => setScale(value)}>{label}</button>
                   ))}
                 </div>

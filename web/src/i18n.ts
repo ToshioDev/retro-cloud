@@ -90,6 +90,7 @@ const dict = {
   audio: { en: "Audio", es: "Audio" },
   controls: { en: "Controls", es: "Controles" },
   fieldOfView: { en: "Field of view", es: "Zoom de pantalla" },
+  fitScreen: { en: "Fit screen", es: "Ajustar a pantalla" },
   volume: { en: "Volume", es: "Volumen" },
   mute: { en: "Mute", es: "Silenciar" },
   unmute: { en: "Unmute", es: "Activar sonido" },
