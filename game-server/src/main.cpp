@@ -62,6 +62,8 @@ struct Runtime {
     // pushed downstream always matches what was negotiated, instead of silently corrupting/dropping frames.
     unsigned canvas_width = 0;
     unsigned canvas_height = 0;
+    bool canvas_ready = false;
+    unsigned canvas_warmup_frames = 0;
     unsigned pixel_format = RETRO_PIXEL_FORMAT_XRGB8888;
     std::string system_directory;
     std::string save_directory;
@@ -142,13 +144,20 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
     }
     runtime.width = width;
     runtime.height = height;
-    if (runtime.canvas_width == 0) {
-        // Use the core's *base* (typical gameplay) resolution rather than its max: pcsx_rearmed reports a
-        // max several times larger than what actually plays (room for hi-res menus/FMVs), and sizing the
-        // canvas to that left the real picture rendered tiny in a mostly-black frame. Any rarer frame
-        // bigger than base gets cropped to canvas size below instead of corrupting the whole stream.
-        runtime.canvas_width = runtime.av.geometry.base_width > 0 ? runtime.av.geometry.base_width : width;
-        runtime.canvas_height = runtime.av.geometry.base_height > 0 ? runtime.av.geometry.base_height : height;
+    if (!runtime.canvas_ready) {
+        // Neither the first frame nor geometry.base_width/height reliably match what a game actually
+        // renders at (PS1 cores commonly report/emit a smaller boot-logo size before settling on the real
+        // gameplay resolution a few frames later), and sizing the canvas wrong either crops the picture or
+        // leaves it tiny inside a mostly-black frame. So: watch the first few frames, grow the canvas to
+        // fit whatever appears (capped by geometry.max_width/height so a one-off transient can't blow it
+        // up), and only start the video/WebRTC pipelines once that canvas has settled.
+        runtime.canvas_width = std::max(runtime.canvas_width, width);
+        runtime.canvas_height = std::max(runtime.canvas_height, height);
+        if (runtime.av.geometry.max_width > 0) runtime.canvas_width = std::min(runtime.canvas_width, runtime.av.geometry.max_width);
+        if (runtime.av.geometry.max_height > 0) runtime.canvas_height = std::min(runtime.canvas_height, runtime.av.geometry.max_height);
+        constexpr unsigned kCanvasWarmupFrames = 20;
+        if (++runtime.canvas_warmup_frames < kCanvasWarmupFrames) return;
+        runtime.canvas_ready = true;
     }
     const auto canvas_width = runtime.canvas_width;
     const auto canvas_height = runtime.canvas_height;
