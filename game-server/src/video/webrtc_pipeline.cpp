@@ -80,11 +80,9 @@ void on_data_channel_message(GstWebRTCDataChannel *, GBytes *message, gpointer u
     if (!handler || !message) return;
     gsize size = 0;
     const auto *data = static_cast<const std::uint8_t *>(g_bytes_get_data(message, &size));
-    if (size < 2) return;
-    const unsigned id = data[0];
-    const bool pressed = data[1] != 0;
-    if (id >= 16) return;
-    handler(peer->player_number, id, pressed);
+    if (size < 3 || data[0] != 0xFF) return;
+    const std::uint16_t mask = static_cast<std::uint16_t>(data[1] | (data[2] << 8));
+    handler(peer->player_number, mask);
 }
 
 void drain_bus(GstElement *pipeline) {
@@ -210,8 +208,8 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     g_object_set(peer->webrtcbin, "ice-candidate-pool-size", 1u, nullptr);
     // Drop old buffers instead of queueing them: a laggy peer should skip ahead rather than build up
     // latency. 150ms keeps video tight without starved-decoder risk; audio stays even tighter.
-    g_object_set(peer->video_queue, "leaky", 2 /* downstream */, "max-size-buffers", 120, "max-size-time", (guint64)150000000 /* 150ms */, "max-size-bytes", 0, nullptr);
-    g_object_set(peer->audio_queue, "leaky", 2 /* downstream */, "max-size-buffers", 120, "max-size-time", (guint64)150000000 /* 150ms */, "max-size-bytes", 0, nullptr);
+    g_object_set(peer->video_queue, "leaky", 2 /* downstream */, "max-size-buffers", 60, "max-size-time", (guint64)50000000 /* 50ms */, "max-size-bytes", 0, nullptr);
+    g_object_set(peer->audio_queue, "leaky", 2 /* downstream */, "max-size-buffers", 60, "max-size-time", (guint64)50000000 /* 50ms */, "max-size-bytes", 0, nullptr);
     gst_bin_add_many(GST_BIN(pipeline_), peer->webrtcbin, peer->video_queue, peer->audio_queue, nullptr);
     if (!gst_element_link(video_tee_, peer->video_queue) || !gst_element_link(peer->video_queue, peer->webrtcbin) ||
         !gst_element_link(audio_tee_, peer->audio_queue) || !gst_element_link(peer->audio_queue, peer->webrtcbin)) {
@@ -227,13 +225,13 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     g_signal_connect(peer->webrtcbin, "on-ice-candidate", G_CALLBACK(on_ice_candidate), peer_ptr);
 
     GstWebRTCDataChannel *channel = nullptr;
-    // Keep this ordered/reliable: input messages are tiny (no head-of-line risk worth mentioning) and
-    // they encode discrete press/release transitions. Losing a "release" packet on an unreliable channel
-    // leaves the button stuck held down from the game-server's point of view — worse than a few ms of
-    // extra latency, which the jitterbuffer/queue tuning already addresses.
+    // Unreliable + unordered: game input benefits from low latency over guaranteed delivery.
+    // Each message carries the full 16-bit button bitmask, so a lost packet is corrected by the
+    // very next key event — no stuck buttons, no retransmit-induced head-of-line blocking.
     g_signal_emit_by_name(peer->webrtcbin, "create-data-channel", "input", nullptr, &channel);
-    peer->data_channel = reinterpret_cast<GObject *>(channel);
     if (channel) {
+        g_object_set(channel, "ordered", FALSE, "max-retransmits", 0, nullptr);
+        peer->data_channel = reinterpret_cast<GObject *>(channel);
         g_signal_connect(channel, "on-message-data", G_CALLBACK(on_data_channel_message), peer_ptr);
     } else {
         std::cerr << "[WEBRTC] failed to create input data channel for peer " << peer_id << std::endl;

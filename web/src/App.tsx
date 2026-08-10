@@ -1509,7 +1509,8 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ block: "end" });
   }, [chatMessages]);
 
-  // Binary encoding: send libretro button ID + pressed byte — 2 bytes total, no JSON overhead
+  // Binary encoding: send full 16-bit button bitmask [0xFF, lo, hi] on every change.
+  // Unreliable data channel — no SCTP retransmit blocking; lost messages corrected by next event.
   const BUTTON_TO_ID: Record<string, number> = {
     B: 0, Y: 1, SELECT: 2, START: 3, UP: 4, DOWN: 5, LEFT: 6, RIGHT: 7,
     A: 8, X: 9, L: 10, R: 11, L2: 12, R2: 13, L3: 14, R3: 15,
@@ -1519,9 +1520,12 @@ export default function App() {
     if (pressed === isHeld) return;
     if (pressed) heldButtonsRef.current.add(button); else heldButtonsRef.current.delete(button);
     if (inputRef.current?.readyState !== "open") return;
-    const id = BUTTON_TO_ID[button];
-    if (id === undefined) return;
-    inputRef.current.send(new Uint8Array([id, pressed ? 1 : 0]));
+    let mask = 0;
+    for (const b of heldButtonsRef.current) {
+      const id = BUTTON_TO_ID[b];
+      if (id !== undefined) mask |= (1 << id);
+    }
+    inputRef.current.send(new Uint8Array([0xFF, mask & 0xFF, (mask >> 8) & 0xFF]));
   }
 
   function rebindKey(button: Button) {

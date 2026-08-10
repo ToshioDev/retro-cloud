@@ -20,9 +20,9 @@ class WebRtcPipeline {
 public:
     struct Peer;
 
-    // (player_number, button_id, pressed). player_number == 0 for unrecognized/host messages.
-    // button_id matches libretro RETRO_DEVICE_ID_JOYPAD_* values (0–15).
-    using InputHandler = std::function<void(unsigned player_number, unsigned button_id, bool pressed)>;
+    // (player_number, button_mask). player_number == 0 for unrecognized/host messages.
+    // button_mask is a 16-bit bitmask of currently held buttons (bit N = libretro RETRO_DEVICE_ID_JOYPAD_N).
+    using InputHandler = std::function<void(unsigned player_number, std::uint16_t button_mask)>;
 
     WebRtcPipeline();
     ~WebRtcPipeline();
