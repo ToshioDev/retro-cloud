@@ -136,8 +136,22 @@ void WebRtcPipeline::start(unsigned width, unsigned height, double fps, unsigned
         // without a cap it would happily spin up as many threads as the *host* has cores and thrash
         // against its own quota — worse, it also competes with the emulator's own CPU budget in the same
         // container. Two encoder threads is plenty for 1080p60 at ultrafast and leaves room for the core.
-        "videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=ultrafast threads=2 bitrate=" + std::to_string(bitrate_kbps) +
-        " key-int-max=5 bframes=0 ! h264parse config-interval=1 ! video/x-h264,stream-format=byte-stream,alignment=au ! rtph264pay config-interval=1 pt=96 ! "
+        // sliced-threads keeps the two encoder threads working inside one frame instead of pipelining
+        // across frames, which is what removes a frame of encoder delay at the cost of a little efficiency.
+        // key-int-max: an IDR every 2 seconds, not every 5 frames. At 60fps the old value spent most of the
+        // bitrate budget on keyframes — that is the single biggest reason the picture looked mushy — and
+        // each IDR burst also spikes the wire, growing the receiver's jitter buffer and with it input lag.
+        // WebRTC does not need dense keyframes: webrtcbin turns a receiver PLI into an upstream
+        // force-key-unit event, so a peer that loses a frame gets a fresh IDR on demand.
+        // vbv-buf-capacity caps how far ahead of the target bitrate a frame may borrow (default 600ms),
+        // keeping bursts small enough not to inflate that same buffer.
+        "videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=ultrafast threads=2 sliced-threads=true "
+        "vbv-buf-capacity=120 bitrate=" + std::to_string(bitrate_kbps) +
+        " key-int-max=" + std::to_string(static_cast<unsigned>(fps * 2.0)) +
+        " bframes=0 ! h264parse config-interval=1 ! video/x-h264,stream-format=byte-stream,alignment=au ! "
+        // zero-latency: forward each NAL as soon as it is produced rather than holding it back waiting to
+        // see whether the next one can be aggregated into the same packet.
+        "rtph264pay config-interval=1 aggregate-mode=zero-latency pt=96 ! "
         "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 ! tee name=video_tee allow-not-linked=true "
         // opusenc otherwise defaults to a much higher VBR target than game audio (chiptune/simple mixes,
         // usually mono or near-mono source material) actually needs; explicit low bitrate saves real

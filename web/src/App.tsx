@@ -1114,6 +1114,13 @@ export default function App() {
     const mediaStream = new MediaStream();
     peer.ontrack = (event) => {
       mediaStream.addTrack(event.track);
+      // Chrome's receiver holds ~100-200ms of media in its jitter buffer by default, tuned for video
+      // calls where smoothness beats latency. For a game that delay lands directly on top of every
+      // button press: it is the largest single contributor to perceived input lag, and nothing on the
+      // server side can remove it. 0 asks for "render as soon as it arrives".
+      if (event.receiver && "playoutDelayHint" in event.receiver) {
+        (event.receiver as RTCRtpReceiver & { playoutDelayHint: number }).playoutDelayHint = 0;
+      }
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
         videoRef.current.volume = volumeRef.current / 100;

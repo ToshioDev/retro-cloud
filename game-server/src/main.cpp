@@ -465,6 +465,13 @@ int main() {
                 frame_dumped = true;
             }
             next_frame += std::chrono::duration_cast<std::chrono::steady_clock::duration>(frame_duration);
+            // If emulation + encoding overran the frame budget (this container has a hard NanoCpus quota
+            // and shares it with x264), next_frame is already in the past. Without a resync the loop then
+            // runs flat out trying to repay a debt it can never clear, and every extra frame it pushes
+            // just queues up ahead of the player's next input. Drop the missed frames instead: skipping
+            // a frame is invisible, running a second behind is not.
+            const auto now = std::chrono::steady_clock::now();
+            if (next_frame < now) next_frame = now;
             std::this_thread::sleep_until(next_frame);
             if (runtime.frames > 0 && runtime.frames % static_cast<std::uint64_t>(fps) == 0) {
                 log_line("[VIDEO]", "frames=" + std::to_string(runtime.frames) + " size=" + std::to_string(runtime.width) + "x" + std::to_string(runtime.height));
