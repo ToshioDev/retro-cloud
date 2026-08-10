@@ -47,6 +47,8 @@ public:
     bool active() const;
 
 private:
+    void remove_peer_elements(Peer &peer);
+
     GstElement *pipeline_ = nullptr;
     GstElement *source_ = nullptr;
     GstElement *audio_source_ = nullptr;

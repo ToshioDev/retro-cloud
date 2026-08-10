@@ -9,6 +9,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <utility>
 #include <stdexcept>
 #include <string>
 
@@ -21,6 +22,8 @@ struct WebRtcPipeline::Peer {
     GstElement *webrtcbin = nullptr;
     GstElement *video_queue = nullptr;
     GstElement *audio_queue = nullptr;
+    GstElement *video_caps = nullptr;
+    GstElement *audio_caps = nullptr;
     GObject *data_channel = nullptr;
 };
 
@@ -195,7 +198,14 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     peer->webrtcbin = gst_element_factory_make("webrtcbin", nullptr);
     peer->video_queue = gst_element_factory_make("queue", nullptr);
     peer->audio_queue = gst_element_factory_make("queue", nullptr);
-    if (!peer->webrtcbin || !peer->video_queue || !peer->audio_queue) {
+    // webrtcbin only creates a transceiver for a sink_%u pad once it sees RTP caps. Linking a bare
+    // queue leaves the pad unnegotiated until the first buffer arrives, and the tee meanwhile pushes
+    // into a branch webrtcbin has not accepted yet — that is what surfaces as
+    // "streaming stopped, reason not-linked" on the audio_source appsrc. Declaring the caps
+    // explicitly makes the transceiver exist at link time.
+    peer->video_caps = gst_element_factory_make("capsfilter", nullptr);
+    peer->audio_caps = gst_element_factory_make("capsfilter", nullptr);
+    if (!peer->webrtcbin || !peer->video_queue || !peer->audio_queue || !peer->video_caps || !peer->audio_caps) {
         std::cerr << "[WEBRTC] failed to create elements for peer " << peer_id << std::endl;
         return;
     }
@@ -218,20 +228,40 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     // webrtcbin's internal jitterbuffer defaults to ~200ms; pull all the way down for minimal
     // glass-to-glass latency. On a controlled VPS→browser link this is safe.
     g_object_set(peer->webrtcbin, "latency", 0, nullptr);
-    g_object_set(peer->webrtcbin, "ice-candidate-pool-size", 1u, nullptr);
     // Drop old buffers instead of queueing them: a laggy peer should skip ahead rather than build up
     // latency. 150ms keeps video tight without starved-decoder risk; audio stays even tighter.
     g_object_set(peer->video_queue, "leaky", 2 /* downstream */, "max-size-buffers", 30, "max-size-time", (guint64)25000000 /* 25ms */, "max-size-bytes", 0, nullptr);
     g_object_set(peer->audio_queue, "leaky", 2 /* downstream */, "max-size-buffers", 30, "max-size-time", (guint64)25000000 /* 25ms */, "max-size-bytes", 0, nullptr);
-    gst_bin_add_many(GST_BIN(pipeline_), peer->webrtcbin, peer->video_queue, peer->audio_queue, nullptr);
-    if (!gst_element_link(video_tee_, peer->video_queue) || !gst_element_link(peer->video_queue, peer->webrtcbin) ||
-        !gst_element_link(audio_tee_, peer->audio_queue) || !gst_element_link(peer->audio_queue, peer->webrtcbin)) {
-        std::cerr << "[WEBRTC] failed to link peer " << peer_id << " into tee" << std::endl;
+    auto *video_rtp_caps = gst_caps_from_string(
+        "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000");
+    auto *audio_rtp_caps = gst_caps_from_string(
+        "application/x-rtp,media=audio,encoding-name=OPUS,payload=97,clock-rate=48000,encoding-params=(string)2");
+    g_object_set(peer->video_caps, "caps", video_rtp_caps, nullptr);
+    g_object_set(peer->audio_caps, "caps", audio_rtp_caps, nullptr);
+    gst_caps_unref(video_rtp_caps);
+    gst_caps_unref(audio_rtp_caps);
+
+    gst_bin_add_many(GST_BIN(pipeline_), peer->webrtcbin, peer->video_queue, peer->audio_queue, peer->video_caps,
+                     peer->audio_caps, nullptr);
+    // Build and start the peer branch *before* attaching it to the tee: a tee src pad linked to a
+    // still-NULL branch drops the whole live chain into a not-linked error.
+    const bool linked = gst_element_link_many(peer->video_queue, peer->video_caps, peer->webrtcbin, nullptr) &&
+                        gst_element_link_many(peer->audio_queue, peer->audio_caps, peer->webrtcbin, nullptr);
+    if (!linked) {
+        std::cerr << "[WEBRTC] failed to link peer branch " << peer_id << std::endl;
+        remove_peer_elements(*peer);
         return;
     }
+    gst_element_sync_state_with_parent(peer->webrtcbin);
+    gst_element_sync_state_with_parent(peer->audio_caps);
+    gst_element_sync_state_with_parent(peer->video_caps);
     gst_element_sync_state_with_parent(peer->audio_queue);
     gst_element_sync_state_with_parent(peer->video_queue);
-    gst_element_sync_state_with_parent(peer->webrtcbin);
+    if (!gst_element_link(video_tee_, peer->video_queue) || !gst_element_link(audio_tee_, peer->audio_queue)) {
+        std::cerr << "[WEBRTC] failed to link peer " << peer_id << " into tee" << std::endl;
+        remove_peer_elements(*peer);
+        return;
+    }
 
     auto *peer_ptr = peer.get();
     g_signal_connect(peer->webrtcbin, "on-negotiation-needed", G_CALLBACK(on_negotiation_needed), peer_ptr);
@@ -241,9 +271,14 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     // Unreliable + unordered: game input benefits from low latency over guaranteed delivery.
     // Each message carries the full 16-bit button bitmask, so a lost packet is corrected by the
     // very next key event — no stuck buttons, no retransmit-induced head-of-line blocking.
-    g_signal_emit_by_name(peer->webrtcbin, "create-data-channel", "input", nullptr, &channel);
+    // "ordered" and "max-retransmits" are construct-only on GstWebRTCDataChannel — setting them with
+    // g_object_set() after creation only logs "property set after construction" and is ignored, so
+    // they have to travel in the options structure passed to create-data-channel.
+    auto *options = gst_structure_new("options", "ordered", G_TYPE_BOOLEAN, FALSE, "max-retransmits", G_TYPE_INT, 0,
+                                      nullptr);
+    g_signal_emit_by_name(peer->webrtcbin, "create-data-channel", "input", options, &channel);
+    gst_structure_free(options);
     if (channel) {
-        g_object_set(channel, "ordered", FALSE, "max-retransmits", 0, nullptr);
         peer->data_channel = reinterpret_cast<GObject *>(channel);
         g_signal_connect(channel, "on-message-data", G_CALLBACK(on_data_channel_message), peer_ptr);
     } else {
@@ -254,23 +289,38 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     peers_.emplace(peer_id, std::move(peer));
 }
 
+// Detaches a peer branch from the tees and tears its elements down. Release the tee request pads
+// explicitly: leaking them leaves the tee pushing into nothing, which stalls the shared encoder
+// chain for every other viewer.
+void WebRtcPipeline::remove_peer_elements(Peer &peer) {
+    const std::pair<GstElement *, GstElement *> branches[] = {{video_tee_, peer.video_queue},
+                                                              {audio_tee_, peer.audio_queue}};
+    for (const auto &[tee, queue] : branches) {
+        if (!tee || !queue) continue;
+        auto *sink_pad = gst_element_get_static_pad(queue, "sink");
+        if (!sink_pad) continue;
+        auto *tee_pad = gst_pad_get_peer(sink_pad);
+        if (tee_pad) {
+            gst_pad_unlink(tee_pad, sink_pad);
+            gst_element_release_request_pad(tee, tee_pad);
+            gst_object_unref(tee_pad);
+        }
+        gst_object_unref(sink_pad);
+    }
+    for (auto **element : {&peer.webrtcbin, &peer.video_caps, &peer.audio_caps, &peer.video_queue, &peer.audio_queue}) {
+        if (!*element) continue;
+        gst_element_set_state(*element, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(pipeline_), *element);
+        *element = nullptr;
+    }
+}
+
 void WebRtcPipeline::remove_peer(const std::string &peer_id) {
     const auto it = peers_.find(peer_id);
     if (it == peers_.end()) return;
     auto &peer = *it->second;
     if (peer.data_channel) g_object_unref(peer.data_channel);
-    if (peer.webrtcbin) {
-        gst_element_set_state(peer.webrtcbin, GST_STATE_NULL);
-        gst_bin_remove(GST_BIN(pipeline_), peer.webrtcbin);
-    }
-    if (peer.video_queue) {
-        gst_element_set_state(peer.video_queue, GST_STATE_NULL);
-        gst_bin_remove(GST_BIN(pipeline_), peer.video_queue);
-    }
-    if (peer.audio_queue) {
-        gst_element_set_state(peer.audio_queue, GST_STATE_NULL);
-        gst_bin_remove(GST_BIN(pipeline_), peer.audio_queue);
-    }
+    remove_peer_elements(peer);
     std::cout << "[WEBRTC] peer removed room=" << room_ << " peer=" << peer_id << std::endl;
     peers_.erase(it);
 }
