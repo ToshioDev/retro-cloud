@@ -124,23 +124,22 @@ void WebRtcPipeline::start(unsigned width, unsigned height, double fps, unsigned
     room_ = std::move(room);
     input_handler_ = std::move(input_handler);
     sample_rate_ = sample_rate > 0 ? sample_rate : 48000;
-    audio_frames_pushed_ = 0;
     const auto video_caps_str = "video/x-raw,format=RGBA,width=" + std::to_string(width) +
                       ",height=" + std::to_string(height) + ",framerate=" +
                       std::to_string(static_cast<unsigned>(fps * 1000)) + "/1000";
-    const auto description = "appsrc name=video_source is-live=true format=time do-timestamp=false block=false max-buffers=1 leaky-type=downstream ! "
+    const auto description = "appsrc name=video_source is-live=true format=time do-timestamp=true block=false max-buffers=1 leaky-type=downstream ! "
         // threads=2: x264 defaults to one encoder thread per detected CPU, but Docker's NanoCpus quota
         // (see signaling's spawnGameServer) doesn't change what /proc reports inside the container, so
         // without a cap it would happily spin up as many threads as the *host* has cores and thrash
         // against its own quota — worse, it also competes with the emulator's own CPU budget in the same
         // container. Two encoder threads is plenty for 1080p60 at ultrafast and leaves room for the core.
         "videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=ultrafast threads=2 bitrate=" + std::to_string(bitrate_kbps) +
-        " key-int-max=30 bframes=0 ! h264parse config-interval=1 ! video/x-h264,stream-format=byte-stream,alignment=au ! rtph264pay config-interval=1 pt=96 ! "
+        " key-int-max=10 bframes=0 ! h264parse config-interval=1 ! video/x-h264,stream-format=byte-stream,alignment=au ! rtph264pay config-interval=1 pt=96 ! "
         "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 ! tee name=video_tee allow-not-linked=true "
         // opusenc otherwise defaults to a much higher VBR target than game audio (chiptune/simple mixes,
         // usually mono or near-mono source material) actually needs; explicit low bitrate saves real
         // bandwidth for every viewer at no audible cost, and drops further on the low-bandwidth video tier.
-        "appsrc name=audio_source is-live=true format=time do-timestamp=false block=false max-buffers=8 leaky-type=downstream ! "
+        "appsrc name=audio_source is-live=true format=time do-timestamp=true block=false max-buffers=2 leaky-type=downstream ! "
         "audioconvert ! audioresample ! audio/x-raw,rate=48000 ! opusenc bitrate=" + std::to_string(bitrate_kbps <= 800 ? 24000 : 40000) + " ! rtpopuspay pt=97 ! "
         "application/x-rtp,media=audio,encoding-name=OPUS,payload=97,clock-rate=48000 ! tee name=audio_tee allow-not-linked=true";
     GError *error = nullptr;
@@ -202,9 +201,9 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     }
     g_object_set(peer->webrtcbin, "bundle-policy", 3 /* GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE */, nullptr);
     g_object_set(peer->webrtcbin, "stun-server", "stun://stun.l.google.com:19302", nullptr);
-    // webrtcbin's internal jitterbuffer defaults to ~200ms; pull down close to the wire for minimal
+    // webrtcbin's internal jitterbuffer defaults to ~200ms; pull all the way down for minimal
     // glass-to-glass latency. On a controlled VPS→browser link this is safe.
-    g_object_set(peer->webrtcbin, "latency", 15 /* ms */, nullptr);
+    g_object_set(peer->webrtcbin, "latency", 0, nullptr);
     g_object_set(peer->webrtcbin, "ice-candidate-pool-size", 1u, nullptr);
     // Drop old buffers instead of queueing them: a laggy peer should skip ahead rather than build up
     // latency. 150ms keeps video tight without starved-decoder risk; audio stays even tighter.
@@ -268,8 +267,6 @@ void WebRtcPipeline::push_rgba(const std::uint8_t *data, std::size_t size, std::
     auto *buffer = gst_buffer_new_allocate(nullptr, size, nullptr);
     if (!buffer) throw std::runtime_error("cannot allocate WebRTC video buffer");
     gst_buffer_fill(buffer, 0, data, size);
-    GST_BUFFER_PTS(buffer) = frame_number * frame_duration_ns_;
-    GST_BUFFER_DTS(buffer) = GST_CLOCK_TIME_NONE;
     GST_BUFFER_DURATION(buffer) = frame_duration_ns_;
     if (gst_app_src_push_buffer(GST_APP_SRC(source_), buffer) != GST_FLOW_OK) {
         throw std::runtime_error("webrtcbin appsrc rejected video frame");
@@ -283,10 +280,7 @@ void WebRtcPipeline::push_pcm(const std::int16_t *data, std::size_t frames) {
     if (!buffer) throw std::runtime_error("cannot allocate WebRTC audio buffer");
     gst_buffer_fill(buffer, 0, data, size);
     const auto duration = static_cast<std::uint64_t>(frames) * 1'000'000'000ULL / sample_rate_;
-    GST_BUFFER_PTS(buffer) = audio_frames_pushed_ * 1'000'000'000ULL / sample_rate_;
-    GST_BUFFER_DTS(buffer) = GST_CLOCK_TIME_NONE;
     GST_BUFFER_DURATION(buffer) = duration;
-    audio_frames_pushed_ += frames;
     if (gst_app_src_push_buffer(GST_APP_SRC(audio_source_), buffer) != GST_FLOW_OK) {
         std::cerr << "[WEBRTC] audio appsrc rejected buffer" << std::endl;
     }

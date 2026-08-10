@@ -1149,9 +1149,15 @@ export default function App() {
         await peer.setRemoteDescription(message.payload);
         for (const candidate of pendingCandidates.splice(0)) await peer.addIceCandidate(candidate);
         const answer = await peer.createAnswer();
+        // SDP munge: force Chrome's internal jitterbuffer to minimum for lowest video latency.
+        if (answer.sdp) {
+          answer.sdp = answer.sdp.replace(/a=fmtp:(\d+) /g, (m) =>
+            m + "; x-google-min-bitrate=1; x-google-start-bitrate=1000; x-google-max-bitrate=3000"
+          );
+        }
         await peer.setLocalDescription(answer);
         if (hostPeerIdRef.current) {
-          socket.send(JSON.stringify({ type: "answer", room: joinRoom, to: hostPeerIdRef.current, payload: answer }));
+          socket.send(JSON.stringify({ type: "answer", room: joinRoom, to: hostPeerIdRef.current, payload: peer.localDescription }));
         }
         setStatus("Answer sent");
       }

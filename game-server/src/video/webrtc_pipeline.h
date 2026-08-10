@@ -53,7 +53,6 @@ private:
     GstElement *video_tee_ = nullptr;
     GstElement *audio_tee_ = nullptr;
     std::uint64_t frame_duration_ns_ = 0;
-    std::uint64_t audio_frames_pushed_ = 0;
     unsigned sample_rate_ = 48000;
     SignalingClient *signaling_ = nullptr;
     std::string room_;
