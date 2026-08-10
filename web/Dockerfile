@@ -4,7 +4,9 @@ COPY package.json package-lock.json* ./
 RUN npm install
 
 FROM deps AS build
-ARG VITE_SIGNALING_URL=ws://localhost:8080/signaling
+# Empty default → frontend auto-detects from window.location at runtime.
+# Set VITE_SIGNALING_URL only for local dev (e.g. ws://localhost:8080/signaling).
+ARG VITE_SIGNALING_URL=
 ENV VITE_SIGNALING_URL=${VITE_SIGNALING_URL}
 COPY tsconfig.json vite.config.ts index.html ./
 COPY src ./src

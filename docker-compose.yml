@@ -37,6 +37,8 @@ services:
     build:
       context: ./web
       args:
+        # Local dev: auto-detect won't work (browser localhost ≠ signaling port),
+        # so point explicitly at the signaling container.
         VITE_SIGNALING_URL: ${WEB_SIGNALING_URL:-ws://localhost:${SIGNALING_PORT:-8080}/signaling}
     expose:
       - "5173"

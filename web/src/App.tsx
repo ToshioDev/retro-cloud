@@ -48,16 +48,17 @@ const CONSOLES: { id: string; label: string; sub: string; active: boolean; hue: 
 // the page's own location: same hostname, same port, /signaling path.
 // This works regardless of what domain/port Coolify assigns.
 function resolveSignalingUrl(): { ws: string; http: string } {
-  const envUrl = import.meta.env.VITE_SIGNALING_URL as string | undefined;
-  if (envUrl) {
+  const envUrl = (import.meta.env.VITE_SIGNALING_URL as string | undefined) ?? "";
+  // If explicitly set (non-empty), use it — this is for local dev (ws://localhost:8080/signaling)
+  if (envUrl.trim()) {
     const http = envUrl.replace(/^ws/, "http").replace(/\/signaling\/?$/, "");
     return { ws: envUrl, http };
   }
-  // Runtime detection: use the current page's host (works in any deployment)
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  const httpProto = location.protocol;
-  const ws = `${proto}//${location.host}/signaling`;
-  const http = `${httpProto}//${location.host}`;
+  // Empty or missing → auto-detect from the current page URL.
+  // Works in any deployment (Coolify, Vercel, Docker, etc.)
+  const isSecure = location.protocol === "https:";
+  const ws = `${isSecure ? "wss:" : "ws:"}//${location.host}/signaling`;
+  const http = `${isSecure ? "https:" : "http:"}//${location.host}`;
   return { ws, http };
 }
 const { ws: signalingUrl, http: apiBase } = resolveSignalingUrl();
