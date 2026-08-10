@@ -838,6 +838,8 @@ export default function App() {
   const hostPeerIdRef = useRef<string | null>(null);
   const playerNumberRef = useRef<number>(1);
   const heldButtonsRef = useRef<Set<Button>>(new Set());
+  const bitmaskRef = useRef<number>(0);
+  const sendBufRef = useRef<Uint8Array>(new Uint8Array(3));
   const shouldReconnectRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<number | null>(null);
@@ -1043,6 +1045,7 @@ export default function App() {
     myPeerIdRef.current = null;
     hostPeerIdRef.current = null;
     heldButtonsRef.current.clear();
+    bitmaskRef.current = 0;
     setMobilePanelOpen(false);
     setRoster([]);
     setChatMessages([]);
@@ -1058,9 +1061,12 @@ export default function App() {
     peerRef.current = peer;
     const pendingCandidates: RTCIceCandidateInit[] = [];
     peer.ondatachannel = (event) => {
-      inputRef.current = event.channel;
-      event.channel.onopen = () => setInputState("Connected");
-      event.channel.onclose = () => setInputState("Closed");
+      const ch = event.channel;
+      ch.binaryType = "arraybuffer";
+      ch.bufferedAmountLowThreshold = 0;
+      inputRef.current = ch;
+      ch.onopen = () => setInputState("Connected");
+      ch.onclose = () => setInputState("Closed");
     };
     const mediaStream = new MediaStream();
     peer.ontrack = (event) => {
@@ -1522,16 +1528,18 @@ export default function App() {
     A: 8, X: 9, L: 10, R: 11, L2: 12, R2: 13, L3: 14, R3: 15,
   };
   function sendInput(button: Button, pressed: boolean) {
-    const isHeld = heldButtonsRef.current.has(button);
-    if (pressed === isHeld) return;
-    if (pressed) heldButtonsRef.current.add(button); else heldButtonsRef.current.delete(button);
-    if (inputRef.current?.readyState !== "open") return;
-    let mask = 0;
-    for (const b of heldButtonsRef.current) {
-      const id = BUTTON_TO_ID[b];
-      if (id !== undefined) mask |= (1 << id);
-    }
-    inputRef.current.send(new Uint8Array([0xFF, mask & 0xFF, (mask >> 8) & 0xFF]));
+    const id = BUTTON_TO_ID[button];
+    if (id === undefined) return;
+    const bit = 1 << id;
+    const already = (bitmaskRef.current & bit) !== 0;
+    if (pressed === already) return;
+    if (pressed) bitmaskRef.current |= bit; else bitmaskRef.current &= ~bit;
+    const ch = inputRef.current;
+    if (!ch || ch.readyState !== "open") return;
+    const buf = sendBufRef.current;
+    buf[1] = bitmaskRef.current & 0xFF;
+    buf[2] = (bitmaskRef.current >> 8) & 0xFF;
+    ch.send(buf);
   }
 
   function rebindKey(button: Button) {
@@ -1569,7 +1577,7 @@ export default function App() {
     };
     // If the window/tab loses focus while a key is held (alt-tab, clicking another element), no keyup
     // ever fires — the game-server keeps thinking that button is held down forever. Release everything.
-    const releaseAll = () => { for (const button of buttons) sendInput(button, false); };
+    const releaseAll = () => { bitmaskRef.current = 0; const ch = inputRef.current; if (ch && ch.readyState === "open") { sendBufRef.current[1] = 0; sendBufRef.current[2] = 0; ch.send(sendBufRef.current); } };
     const onVisibility = () => { if (document.hidden) releaseAll(); };
     window.addEventListener("keydown", down); window.addEventListener("keyup", up);
     window.addEventListener("blur", releaseAll);
