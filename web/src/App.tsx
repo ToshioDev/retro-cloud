@@ -1069,8 +1069,17 @@ export default function App() {
     setCanvasHintVisible(!canvasLocked);
     const socket = new WebSocket(signalingUrl);
     socketRef.current = socket;
+    // Fetch TURN credentials from signaling server (HMAC time-limited, 1h TTL)
+    let iceServers: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+    try {
+      const turnResp = await fetch(`${apiBase}/turn`);
+      const turnData = await turnResp.json();
+      if (turnData.enabled && turnData.url) {
+        iceServers = [{ urls: [turnData.url], username: turnData.username, credential: turnData.credential }, ...iceServers];
+      }
+    } catch { /* TURN not available, use STUN only */ }
     const peer = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers,
       bundlePolicy: "max-bundle",
       iceCandidatePoolSize: 1,
     });

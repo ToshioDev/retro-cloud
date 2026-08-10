@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { randomUUID, randomBytes } from "node:crypto";
+import { randomUUID, randomBytes, createHmac } from "node:crypto";
 import { readdir, stat, rename, unlink, readFile, writeFile } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import { join, basename, extname } from "node:path";
@@ -193,6 +193,12 @@ async function spawnGameServer(game: string, romPath: string, owner: string, vis
   // a bit more headroom than NES/SNES since 3D emulation is meaningfully heavier than 2D.
   const cpuCores = game === "ps1" ? 3 : 1;
   const videoBitrate = videoBitrateByTier[bandwidth] ?? videoBitrateByTier.medium;
+  // Generate fresh TURN credentials for this game-server session
+  const turnCreds = generateTurnCredentials();
+  const envExtra: string[] = [];
+  if (turnCreds && turnUrl) {
+    envExtra.push(`TURN_URL=${turnUrl}`, `TURN_USERNAME=${turnCreds.username}`, `TURN_PASSWORD=${turnCreds.credential}`);
+  }
   const container = await docker.createContainer({
     Image: image,
     Env: [
@@ -204,6 +210,7 @@ async function spawnGameServer(game: string, romPath: string, owner: string, vis
       `PUBLIC_IP=${publicIp}`,
       `VIDEO_BITRATE=${videoBitrate}`,
       `LOW_BANDWIDTH=${bandwidth === "low" ? "1" : "0"}`,
+      ...envExtra,
     ],
     HostConfig: {
       Binds: binds,
@@ -368,6 +375,47 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
+// ── TURN credentials (RFC draft-uberti-behave-turn-rest) ──────────────────────
+// Coturn is configured with a shared secret; this server generates time-limited
+// HMAC credentials so the frontend can obtain a valid username/password pair on
+// demand without exposing the secret.
+const turnSharedSecret = process.env.TURN_SHARED_SECRET ?? "";
+const turnUrl = process.env.TURN_URL ?? ""; // e.g. turn:23.138.88.186:3478
+const turnTtlSeconds = 3600; // 1 hour
+
+function generateTurnCredentials(): { username: string; credential: string } | null {
+  if (!turnSharedSecret || !turnUrl) return null;
+  const expiry = Math.floor(Date.now() / 1000) + turnTtlSeconds;
+  const username = `${expiry}`;
+  const hmac = createHmac("sha1", turnSharedSecret);
+  hmac.update(username);
+  const credential = hmac.digest("base64");
+  return { username, credential };
+}
+
+// ── Resource monitoring ──────────────────────────────────────────────────────
+async function getContainerStats(): Promise<Record<string, { cpu: number; memory: number; memoryLimit: number; pids: number }>> {
+  if (!docker) return {};
+  const stats: Record<string, { cpu: number; memory: number; memoryLimit: number; pids: number }> = {};
+  for (const [room, info] of managedRooms) {
+    try {
+      const container = docker.getContainer(info.containerId);
+      const report = await container.stats({ stream: false });
+      const cpuDelta = report.cpu_stats.cpu_usage.total_usage - (report.precpu_stats?.cpu_usage?.total_usage ?? 0);
+      const systemDelta = report.cpu_stats.system_cpu_usage - (report.precpu_stats?.system_cpu_usage ?? 0);
+      const cpuCount = report.cpu_stats.online_cpus ?? 1;
+      const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * cpuCount * 100 : 0;
+      stats[room] = {
+        cpu: Math.round(cpuPercent * 10) / 10,
+        memory: report.memory_stats.usage ?? 0,
+        memoryLimit: report.memory_stats.limit ?? 0,
+        pids: report.pids_stats?.current ?? 0,
+      };
+    } catch { /* container may have exited */ }
+  }
+  return stats;
+}
+
 function clientIp(request: import("node:http").IncomingMessage): string {
   const forwarded = request.headers["x-forwarded-for"];
   if (typeof forwarded === "string") return forwarded.split(",")[0].trim();
@@ -434,7 +482,38 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
       activeRooms: roomsWithHosts.size,
       managedContainers: managedRooms.size,
       maxContainers: MAX_CONCURRENT_GAME_SERVERS,
+      turnEnabled: !!turnSharedSecret && !!turnUrl,
       memoryUsage: process.memoryUsage(),
+    }));
+    return;
+  }
+  if (request.method === "GET" && request.url === "/metrics") {
+    if (!docker) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ containers: {}, signaling: { memoryUsage: process.memoryUsage() } }));
+      return;
+    }
+    const containerStats = await getContainerStats();
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      signaling: { memoryUsage: process.memoryUsage(), uptime: Math.round(process.uptime()) },
+      containers: containerStats,
+    }));
+    return;
+  }
+  if (request.method === "GET" && request.url === "/turn") {
+    const credentials = generateTurnCredentials();
+    if (!credentials) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ enabled: false }));
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      enabled: true,
+      url: turnUrl,
+      ttl: turnTtlSeconds,
+      ...credentials,
     }));
     return;
   }
@@ -1127,9 +1206,34 @@ setInterval(() => {
   }
 }, 30_000);
 
+async function resourceMonitor() {
+  if (!docker || managedRooms.size === 0) return;
+  try {
+    const stats = await getContainerStats();
+    const entries = Object.entries(stats);
+    if (entries.length === 0) return;
+    const lines = entries.map(([room, s]) => {
+      const memMb = Math.round(s.memory / 1024 / 1024);
+      const memMaxMb = Math.round(s.memoryLimit / 1024 / 1024);
+      return `${room}: cpu=${s.cpu}% mem=${memMb}/${memMaxMb}MB pids=${s.pids}`;
+    });
+    console.log(`[MONITOR] ${lines.join(" | ")}`);
+    // Alert if any container is using >80% of its CPU quota or memory
+    for (const [room, s] of entries) {
+      if (s.cpu > 80) console.warn(`[MONITOR] WARNING: room ${room} CPU at ${s.cpu}%`);
+      if (s.memoryLimit > 0 && s.memory / s.memoryLimit > 0.8) {
+        console.warn(`[MONITOR] WARNING: room ${room} memory at ${Math.round(s.memory / s.memoryLimit * 100)}%`);
+      }
+    }
+  } catch { /* best effort */ }
+}
+
 void reconcileOrphanedGameServers().then(() => {
   httpServer.listen(port, () => console.log(`[SIGNALING] listening on :${port}`));
   // Start the periodic watchdog after the initial orphan cleanup
   setInterval(watchdogCleanup, WATCHDOG_INTERVAL_MS);
+  // Resource monitoring every 5 minutes (lightweight, only when containers are running)
+  setInterval(resourceMonitor, 5 * 60 * 1000);
   console.log(`[WATCHDOG] started (interval=${WATCHDOG_INTERVAL_MS / 1000}s, max-rooms=${MAX_CONCURRENT_GAME_SERVERS}, max-lifetime=${MAX_GAME_SERVER_LIFETIME_MS / 3600000}h)`);
+  console.log(`[MONITOR] resource monitoring enabled (interval=300s)`);
 });

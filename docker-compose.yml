@@ -11,6 +11,8 @@ services:
       BIOS_DIR: ${BIOS_DIR:-}
       DATABASE_URL: ${DATABASE_URL:-postgres://retro:retro@postgres:5432/retro_cloud}
       PUBLIC_IP: ${PUBLIC_IP:-}
+      TURN_SHARED_SECRET: ${TURN_SHARED_SECRET:-}
+      TURN_URL: ${TURN_URL:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${ROMS_DIR:-./roms}:/roms
@@ -65,6 +67,14 @@ services:
     depends_on:
       - signaling
     restart: unless-stopped
+
+  coturn:
+    image: coturn/coturn:latest
+    network_mode: host
+    volumes:
+      - ./coturn/turnserver.conf:/etc/turnserver.conf:ro
+    restart: unless-stopped
+    command: -c /etc/turnserver.conf
 
 volumes:
   postgres-data:

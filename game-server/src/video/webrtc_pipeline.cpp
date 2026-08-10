@@ -200,7 +200,21 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
         return;
     }
     g_object_set(peer->webrtcbin, "bundle-policy", 3 /* GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE */, nullptr);
-    g_object_set(peer->webrtcbin, "stun-server", "stun://stun.l.google.com:19302", nullptr);
+    // STUN/TURN: prefer a local TURN server when available (handles symmetric NATs that block
+    // direct peer-to-peer); fall back to Google's public STUN for cases where no TURN is configured.
+    const char *turn_url = std::getenv("TURN_URL");
+    const char *turn_username = std::getenv("TURN_USERNAME");
+    const char *turn_password = std::getenv("TURN_PASSWORD");
+    if (turn_url && *turn_url && turn_username && *turn_username && turn_password && *turn_password) {
+        g_object_set(peer->webrtcbin, "stun-server", turn_url, nullptr);
+        g_object_set(peer->webrtcbin, "turn-server", turn_url, nullptr);
+        g_object_set(peer->webrtcbin, "turn-server-user", turn_username, nullptr);
+        g_object_set(peer->webrtcbin, "turn-server-password", turn_password, nullptr);
+        std::cout << "[WEBRTC] using TURN server: " << turn_url << std::endl;
+    } else {
+        g_object_set(peer->webrtcbin, "stun-server", "stun://stun.l.google.com:19302", nullptr);
+        std::cout << "[WEBRTC] using public STUN only (no TURN configured)" << std::endl;
+    }
     // webrtcbin's internal jitterbuffer defaults to ~200ms; pull all the way down for minimal
     // glass-to-glass latency. On a controlled VPS→browser link this is safe.
     g_object_set(peer->webrtcbin, "latency", 0, nullptr);
