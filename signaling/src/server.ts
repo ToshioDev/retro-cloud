@@ -1162,8 +1162,24 @@ webSockets.on("connection", (socket) => {
           send(peer, { type: "join", room, payload: { peerId: other.id, playerNumber: other.playerNumber, role: "player", username: other.username } });
         }
       }
-      console.log(`[SIGNALING] ${peer.id} joined ${room} as ${peer.role}${peer.playerNumber ? ` P${peer.playerNumber}` : ""}`);
-      return;
+      console.log(`[SIGNALING] ${peer.id} joined ${room} as ${peer.role}${peer.playerNumber ? ` P${peer.playerNumber}` : ""} (total peers: ${peers.size})`);
+    // Log room state for debugging
+    const roomPeers = [...peers.values()].filter((p) => p.room === room);
+    console.log(`[SIGNALING] room ${room}: ${roomPeers.map((p) => `${p.id.slice(0, 8)}(${p.role}${p.playerNumber ? "P" + p.playerNumber : ""})`).join(", ")}`);
+    // If a host just joined with players waiting, set a timer to check if offer was sent
+    if (peer.role === "host") {
+      const waitingPlayers = roomPeers.filter((p) => p.role === "player").length;
+      if (waitingPlayers > 0) {
+        setTimeout(() => {
+          const stillHasHost = [...peers.values()].some((p) => p.room === room && p.role === "host");
+          const stillHasPlayers = [...peers.values()].some((p) => p.room === room && p.role === "player");
+          if (stillHasHost && stillHasPlayers) {
+            console.log(`[SIGNALING] WARNING: room ${room} has host + ${waitingPlayers} player(s) but no WebRTC offer after 10s — game-server may not be producing frames`);
+          }
+        }, 10_000);
+      }
+    }
+    return;
     }
     if (!peer.room) return;
     if (message.type === "leave") {
@@ -1195,8 +1211,12 @@ webSockets.on("connection", (socket) => {
     // offer/answer/candidate are point-to-point: deliver only to the addressed peer.
     if (message.type === "offer" || message.type === "answer" || message.type === "candidate") {
       const target = typeof message.to === "string" ? peers.get(message.to) : undefined;
-      if (!target || target.room !== peer.room) return;
+      if (!target || target.room !== peer.room) {
+        console.log(`[SIGNALING] ${message.type} from ${peer.id} → target ${message.to ?? "?"} NOT FOUND or different room`);
+        return;
+      }
       send(target, { type: message.type, room: peer.room, from: peer.id, payload: message.payload });
+      console.log(`[SIGNALING] ${message.type} relayed ${peer.id} → ${message.to} (room=${peer.room})`);
     }
   });
 
