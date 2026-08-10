@@ -777,6 +777,20 @@ button:disabled { cursor: progress; opacity: .55; }
 .game-modal-tag { background: rgba(6,7,10,.4); color: #fff; }
 .game-modal-close { position: absolute; top: 16px; right: 16px; background: rgba(6,7,10,.5); border-color: transparent; color: #fff; }
 .game-modal-body { padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.btn-diagnostic { width: 100%; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font-size: 13px; cursor: pointer; transition: border-color .2s, background .2s; }
+.btn-diagnostic:hover:not(:disabled) { border-color: var(--accent); background: rgba(var(--accent-rgb, 99, 102, 241), .06); }
+.btn-diagnostic:disabled { opacity: .5; cursor: default; }
+.diagnostic-result { border-radius: 10px; padding: 10px 14px; font-size: 12px; border: 1px solid var(--line); }
+.diagnostic-excellent { border-color: var(--emerald); background: rgba(16, 185, 129, .08); }
+.diagnostic-good { border-color: var(--emerald); background: rgba(16, 185, 129, .04); }
+.diagnostic-fair { border-color: var(--amber); background: rgba(245, 158, 11, .06); }
+.diagnostic-poor { border-color: var(--ember); background: rgba(239, 68, 68, .06); }
+.diagnostic-stats { display: flex; gap: 16px; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+.diagnostic-msg { margin: 0; opacity: .85; }
+body.light .btn-diagnostic { background: var(--surface); color: var(--text); border-color: var(--line); }
+body.light .diagnostic-excellent { background: rgba(16, 185, 129, .06); }
+body.light .diagnostic-fair { background: rgba(245, 158, 11, .05); }
+body.light .diagnostic-poor { background: rgba(239, 68, 68, .05); }
 .game-modal-create { width: 100%; text-align: center; padding: 14px; font-size: 15px; }
 .game-modal-rooms-head { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
 .game-modal-refresh { margin-left: 0; width: 32px; height: 32px; background: var(--panel-raised); }

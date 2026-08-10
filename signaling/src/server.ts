@@ -293,6 +293,18 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     response.end(JSON.stringify({ status: "ok", service: "signaling" }));
     return;
   }
+  if (request.method === "GET" && request.url?.startsWith("/ping")) {
+    const url = new URL(request.url, "http://localhost");
+    const dl = url.searchParams.get("dl");
+    if (dl) {
+      response.writeHead(200, { "content-type": "application/octet-stream" });
+      response.end(Buffer.alloc(65536));
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/plain", "cache-control": "no-store" });
+    response.end("pong");
+    return;
+  }
   if (request.method === "GET" && request.url === "/rooms") {
     const requester = await auth.usernameForToken(bearerToken(request));
     const peerCounts = new Map<string, number>();

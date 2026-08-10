@@ -222,6 +222,13 @@ const dict = {
   roomCodeCopied: { en: "Copied!", es: "¡Copiado!" },
   quickReactions: { en: "Quick reaction", es: "Reacción rápida" },
   featuredBadge: { en: "Cloud Streamed", es: "Nube en vivo" },
+  runDiagnostic: { en: "Run network test", es: "Ejecutar prueba de red" },
+  diagnosticRunning: { en: "Testing…", es: "Probando…" },
+  diagnosticExcellent: { en: "Excellent — you can host at high quality", es: "Excelente — podés hostear en alta calidad" },
+  diagnosticGood: { en: "Good — medium quality recommended", es: "Buena — se recomienda calidad media" },
+  diagnosticFair: { en: "Fair — low quality recommended for smooth play", es: "Regular — se recomienda baja calidad para jugar fluido" },
+  diagnosticPoor: { en: "Poor — expect lag, try low or a closer server", es: "Mala — esperá lag, probá baja o un servidor más cercano" },
+  recommended: { en: "Recommended", es: "Recomendado" },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type TKey = keyof typeof dict;

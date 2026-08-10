@@ -720,6 +720,8 @@ export default function App() {
   const [biosError, setBiosError] = useState("");
   const [newRoomVisibility, setNewRoomVisibility] = useState<"public" | "private">("public");
   const [newRoomBandwidth, setNewRoomBandwidth] = useState<"high" | "medium" | "low">("medium");
+  const [diagRunning, setDiagRunning] = useState(false);
+  const [diagResult, setDiagResult] = useState<{ rtt: number; jitter: number; downKbps: number; rating: "excellent" | "good" | "fair" | "poor" } | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -1386,6 +1388,49 @@ export default function App() {
       setCreateError(error instanceof Error ? error.message : "failed to create room");
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function runNetworkDiagnostic() {
+    setDiagRunning(true);
+    setDiagResult(null);
+    try {
+      const httpBase = apiBase;
+      const samples: number[] = [];
+      const pings = 8;
+      for (let i = 0; i < pings; i++) {
+        const t0 = performance.now();
+        await fetch(`${httpBase}/ping?_=${Date.now()}`, { cache: "no-store" });
+        samples.push(performance.now() - t0);
+      }
+      const rtt = samples.reduce((a, b) => a + b, 0) / samples.length;
+      const sorted = [...samples].sort((a, b) => a - b);
+      const jitter = sorted[Math.floor(sorted.length * 0.9)] - sorted[Math.floor(sorted.length * 0.1)];
+
+      const dlStart = performance.now();
+      let dlBytes = 0;
+      try {
+        const resp = await fetch(`${httpBase}/ping?dl=${Date.now()}`, { cache: "no-store" });
+        const blob = await resp.blob();
+        dlBytes = blob.size;
+      } catch { dlBytes = 0; }
+      const dlSec = (performance.now() - dlStart) / 1000;
+      const downKbps = dlSec > 0 ? Math.round((dlBytes * 8) / dlSec / 1000) : 0;
+
+      let rating: "excellent" | "good" | "fair" | "poor";
+      if (rtt < 50 && jitter < 10) rating = "excellent";
+      else if (rtt < 100 && jitter < 25) rating = "good";
+      else if (rtt < 180 && jitter < 50) rating = "fair";
+      else rating = "poor";
+
+      const recommended = rating === "excellent" ? "high" : rating === "good" ? "medium" : "low";
+      setNewRoomBandwidth(recommended);
+      setDiagResult({ rtt: Math.round(rtt), jitter: Math.round(jitter), downKbps, rating });
+    } catch {
+      setDiagResult({ rtt: -1, jitter: -1, downKbps: 0, rating: "poor" });
+      setNewRoomBandwidth("low");
+    } finally {
+      setDiagRunning(false);
     }
   }
 
@@ -2704,6 +2749,18 @@ export default function App() {
               <button className={newRoomVisibility === "public" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("public")}><IconGlobe /> {t("public")}</button>
               <button className={newRoomVisibility === "private" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("private")}><IconLock /> {t("private")}</button>
             </div>
+            <button className="btn-diagnostic" disabled={diagRunning} onClick={() => void runNetworkDiagnostic()}>
+              {diagRunning ? t("diagnosticRunning") : t("runDiagnostic")}
+            </button>
+            {diagResult && (
+              <div className={`diagnostic-result diagnostic-${diagResult.rating}`}>
+                <div className="diagnostic-stats">
+                  <span>RTT {diagResult.rtt >= 0 ? `${diagResult.rtt} ms` : "—"}</span>
+                  <span> jitter {diagResult.jitter >= 0 ? `${diagResult.jitter} ms` : "—"}</span>
+                </div>
+                <p className="diagnostic-msg">{t(`diagnostic${diagResult.rating.charAt(0).toUpperCase() + diagResult.rating.slice(1)}` as any)}</p>
+              </div>
+            )}
             <p className="form-label" style={{ marginTop: 4 }}>{t("connectionQuality")}</p>
             <div className="visibility-toggle" role="group" aria-label={t("connectionQuality")}>
               <button className={newRoomBandwidth === "high" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomBandwidth("high")}>{t("bandwidthHigh")}</button>
