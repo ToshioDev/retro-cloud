@@ -234,7 +234,7 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
         }
         runtime.video_pipeline->push_rgba(runtime.framebuffer_scaled.data(), runtime.framebuffer_scaled.size(), runtime.frames);
     }
-    if (runtime.webrtc_debug) {
+    if (runtime.signaling_client) {
         if (!runtime.webrtc_pipeline) runtime.webrtc_pipeline = std::make_unique<WebRtcPipeline>();
         if (!runtime.webrtc_pipeline->active()) {
             const unsigned sample_rate = runtime.av.timing.sample_rate > 1.0
@@ -254,7 +254,7 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
 
 std::size_t audio_batch(const int16_t *data, std::size_t frames) {
     runtime.audio_samples += frames;
-    if (runtime.webrtc_debug && runtime.webrtc_pipeline && runtime.webrtc_pipeline->active()) {
+    if (runtime.webrtc_pipeline && runtime.webrtc_pipeline->active()) {
         runtime.webrtc_pipeline->push_pcm(data, frames);
     }
     return frames;
@@ -366,7 +366,7 @@ int main() {
         log_line("[EMULATOR]", "session room: " + runtime.signaling_room);
         gst_init(nullptr, nullptr);
 
-        if (runtime.webrtc_debug) {
+        {
             log_line("[WEBRTC]", "connecting to signaling at " + runtime.signaling_url + " room=" + runtime.signaling_room);
             runtime.signaling_client = std::make_unique<SignalingClient>();
             runtime.signaling_client->connect(runtime.signaling_url, runtime.signaling_room,
