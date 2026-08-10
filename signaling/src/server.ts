@@ -33,7 +33,7 @@ const biosLocalDir = "/system";
 const signalingUrlForGameServer = process.env.GAME_SERVER_SIGNALING_URL ?? "ws://signaling:8080/signaling";
 const publicIp = process.env.PUBLIC_IP ?? "";
 const docker = romsHostDir ? new Docker() : null;
-const managedRooms = new Map<string, { containerId: string }>();
+const managedRooms = new Map<string, { containerId: string; spawnTime: number }>();
 const roomOwners = new Map<string, string>();
 const roomVisibility = new Map<string, "public" | "private">();
 const roomFiles = new Map<string, { game: string; file: string }>();
@@ -211,7 +211,7 @@ async function spawnGameServer(game: string, romPath: string, owner: string, vis
     },
   });
   await container.start();
-  managedRooms.set(room, { containerId: container.id });
+  managedRooms.set(room, { containerId: container.id, spawnTime: Date.now() });
   roomOwners.set(room, owner);
   roomVisibility.set(room, visibility);
   roomFiles.set(room, { game, file });
@@ -256,6 +256,59 @@ async function reconcileOrphanedGameServers() {
     }
   } catch (error) {
     console.error("[SIGNALING] failed to list containers for orphan cleanup:", error instanceof Error ? error.message : error);
+  }
+}
+
+// Maximum concurrent game-server containers. Each room uses one container with 1-3 CPU cores and 1 GiB
+// RAM. The VPS has 8 cores / 31 GiB total, shared with Coolify, Postgres, and other apps. 4 concurrent
+// game-servers is the safe ceiling — beyond that, encoding quality degrades and the host becomes
+// unresponsive.
+const MAX_CONCURRENT_GAME_SERVERS = Number(process.env.MAX_GAME_SERVERS ?? "4");
+
+// Maximum lifetime for a game-server container (ms). Rooms that stay open forever accumulate state
+// and risk leaking resources. 4 hours is generous enough for marathon sessions but forces a refresh.
+const MAX_GAME_SERVER_LIFETIME_MS = 4 * 60 * 60 * 1000;
+
+// How often the watchdog runs (ms). Every 60 seconds: fast enough to catch problems before they
+// cascade, infrequent enough to not add meaningful overhead.
+const WATCHDOG_INTERVAL_MS = 60_000;
+
+async function watchdogCleanup() {
+  if (!docker) return;
+  try {
+    // 1. Stop containers exceeding max lifetime
+    for (const [room, info] of managedRooms) {
+      const age = Date.now() - info.spawnTime;
+      if (age > MAX_GAME_SERVER_LIFETIME_MS) {
+        console.log(`[WATCHDOG] room ${room} exceeded max lifetime (${Math.round(age / 60000)} min), tearing down`);
+        await teardownRoom(room);
+      }
+    }
+
+    // 2. Enforce max concurrent limit: if over limit, tear down oldest rooms first
+    if (managedRooms.size > MAX_CONCURRENT_GAME_SERVERS) {
+      const sorted = [...managedRooms.entries()].sort((a, b) => a[1].spawnTime - b[1].spawnTime);
+      while (sorted.length > MAX_CONCURRENT_GAME_SERVERS) {
+        const [oldestRoom] = sorted.shift()!;
+        console.log(`[WATCHDOG] over max concurrent (${managedRooms.size}/${MAX_CONCURRENT_GAME_SERVERS}), stopping oldest room ${oldestRoom}`);
+        await teardownRoom(oldestRoom);
+      }
+    }
+
+    // 3. Kill orphaned game-server containers not tracked by this instance
+    const containers = await docker.listContainers({ all: false, filters: JSON.stringify({ ancestor: [gameServerImage] }) });
+    const managedIds = new Set([...managedRooms.values()].map((info) => info.containerId));
+    for (const info of containers) {
+      if (managedIds.has(info.Id)) continue;
+      try {
+        await docker.getContainer(info.Id).stop();
+        console.log(`[WATCHDOG] stopped orphaned container ${info.Id.slice(0, 12)} (not tracked by any room)`);
+      } catch (error) {
+        console.error(`[WATCHDOG] failed to stop orphan ${info.Id.slice(0, 12)}:`, error instanceof Error ? error.message : error);
+      }
+    }
+  } catch (error) {
+    console.error("[WATCHDOG] cleanup cycle failed:", error instanceof Error ? error.message : error);
   }
 }
 
@@ -778,6 +831,9 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     }
     readJsonBody<{ file?: string; visibility?: string; bandwidth?: string }>(request)
       .then(async (body) => {
+        if (managedRooms.size >= MAX_CONCURRENT_GAME_SERVERS) {
+          throw new Error(`server is at capacity (${managedRooms.size}/${MAX_CONCURRENT_GAME_SERVERS} rooms). Try again later.`);
+        }
         let roms = await listRoms(username);
         let rom = roms.find((entry) => entry.file === body.file) ?? roms[0];
         if (!rom && body.file) {
@@ -973,4 +1029,7 @@ setInterval(() => {
 
 void reconcileOrphanedGameServers().then(() => {
   httpServer.listen(port, () => console.log(`[SIGNALING] listening on :${port}`));
+  // Start the periodic watchdog after the initial orphan cleanup
+  setInterval(watchdogCleanup, WATCHDOG_INTERVAL_MS);
+  console.log(`[WATCHDOG] started (interval=${WATCHDOG_INTERVAL_MS / 1000}s, max-rooms=${MAX_CONCURRENT_GAME_SERVERS}, max-lifetime=${MAX_GAME_SERVER_LIFETIME_MS / 3600000}h)`);
 });
