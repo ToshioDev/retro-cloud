@@ -839,7 +839,7 @@ export default function App() {
   const playerNumberRef = useRef<number>(1);
   const heldButtonsRef = useRef<Set<Button>>(new Set());
   const bitmaskRef = useRef<number>(0);
-  const sendBufRef = useRef<Uint8Array>(new Uint8Array(3));
+  const sendBufRef = useRef<Uint8Array>((() => { const b = new Uint8Array(3); b[0] = 0xFF; return b; })());
   const shouldReconnectRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<number | null>(null);
