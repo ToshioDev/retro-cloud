@@ -229,6 +229,16 @@ const dict = {
   diagnosticFair: { en: "Fair — low quality recommended for smooth play", es: "Regular — se recomienda baja calidad para jugar fluido" },
   diagnosticPoor: { en: "Poor — expect lag, try low or a closer server", es: "Mala — esperá lag, probá baja o un servidor más cercano" },
   recommended: { en: "Recommended", es: "Recomendado" },
+  shareRoomLink: { en: "Share room", es: "Compartir sala" },
+  shareTitle: { en: "Share this room", es: "Compartir esta sala" },
+  shareSubtitle: { en: "Send this link to a friend so they can join instantly.", es: "Enviale este link a un amigo para que se una al toque." },
+  copyLink: { en: "Copy link", es: "Copiar link" },
+  shareWhatsapp: { en: "WhatsApp", es: "WhatsApp" },
+  shareTelegram: { en: "Telegram", es: "Telegram" },
+  shareNative: { en: "More options…", es: "Más opciones…" },
+  linkCopied: { en: "Link copied!", es: "¡Link copiado!" },
+  joinViaLink: { en: "Join via link", es: "Unirse por link" },
+  roomNotFound: { en: "Room not found or already closed.", es: "Sala no encontrada o ya cerrada." },
 } satisfies Record<string, Record<Lang, string>>;
 
 export type TKey = keyof typeof dict;

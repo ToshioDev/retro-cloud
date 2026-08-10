@@ -134,13 +134,13 @@ void WebRtcPipeline::start(unsigned width, unsigned height, double fps, unsigned
         // against its own quota — worse, it also competes with the emulator's own CPU budget in the same
         // container. Two encoder threads is plenty for 1080p60 at ultrafast and leaves room for the core.
         "videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=ultrafast threads=2 bitrate=" + std::to_string(bitrate_kbps) +
-        " key-int-max=10 bframes=0 ! h264parse config-interval=1 ! video/x-h264,stream-format=byte-stream,alignment=au ! rtph264pay config-interval=1 pt=96 ! "
+        " key-int-max=5 bframes=0 ! h264parse config-interval=1 ! video/x-h264,stream-format=byte-stream,alignment=au ! rtph264pay config-interval=1 pt=96 ! "
         "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 ! tee name=video_tee allow-not-linked=true "
         // opusenc otherwise defaults to a much higher VBR target than game audio (chiptune/simple mixes,
         // usually mono or near-mono source material) actually needs; explicit low bitrate saves real
         // bandwidth for every viewer at no audible cost, and drops further on the low-bandwidth video tier.
         "appsrc name=audio_source is-live=true format=time do-timestamp=true block=false max-buffers=2 leaky-type=downstream ! "
-        "audioconvert ! audioresample ! audio/x-raw,rate=48000 ! opusenc bitrate=" + std::to_string(bitrate_kbps <= 800 ? 24000 : 40000) + " ! rtpopuspay pt=97 ! "
+        "audioconvert ! audioresample ! audio/x-raw,rate=48000 ! opusenc bitrate=" + std::to_string(bitrate_kbps <= 800 ? 24000 : 40000) + " max-latency=2 ! rtpopuspay pt=97 ! "
         "application/x-rtp,media=audio,encoding-name=OPUS,payload=97,clock-rate=48000 ! tee name=audio_tee allow-not-linked=true";
     GError *error = nullptr;
     pipeline_ = gst_parse_launch(description.c_str(), &error);
@@ -207,8 +207,8 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     g_object_set(peer->webrtcbin, "ice-candidate-pool-size", 1u, nullptr);
     // Drop old buffers instead of queueing them: a laggy peer should skip ahead rather than build up
     // latency. 150ms keeps video tight without starved-decoder risk; audio stays even tighter.
-    g_object_set(peer->video_queue, "leaky", 2 /* downstream */, "max-size-buffers", 60, "max-size-time", (guint64)50000000 /* 50ms */, "max-size-bytes", 0, nullptr);
-    g_object_set(peer->audio_queue, "leaky", 2 /* downstream */, "max-size-buffers", 60, "max-size-time", (guint64)50000000 /* 50ms */, "max-size-bytes", 0, nullptr);
+    g_object_set(peer->video_queue, "leaky", 2 /* downstream */, "max-size-buffers", 30, "max-size-time", (guint64)25000000 /* 25ms */, "max-size-bytes", 0, nullptr);
+    g_object_set(peer->audio_queue, "leaky", 2 /* downstream */, "max-size-buffers", 30, "max-size-time", (guint64)25000000 /* 25ms */, "max-size-bytes", 0, nullptr);
     gst_bin_add_many(GST_BIN(pipeline_), peer->webrtcbin, peer->video_queue, peer->audio_queue, nullptr);
     if (!gst_element_link(video_tee_, peer->video_queue) || !gst_element_link(peer->video_queue, peer->webrtcbin) ||
         !gst_element_link(audio_tee_, peer->audio_queue) || !gst_element_link(peer->audio_queue, peer->webrtcbin)) {

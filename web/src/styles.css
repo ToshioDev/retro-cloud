@@ -787,6 +787,27 @@ button:disabled { cursor: progress; opacity: .55; }
 .diagnostic-poor { border-color: var(--ember); background: rgba(239, 68, 68, .06); }
 .diagnostic-stats { display: flex; gap: 16px; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
 .diagnostic-msg { margin: 0; opacity: .85; }
+.room-share-btn { padding: 6px; border-radius: 8px; background: transparent; border: 1px solid var(--line); color: var(--mist); cursor: pointer; transition: all .2s; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.room-share-btn:hover { border-color: var(--signal); color: var(--signal); background: rgba(var(--signal-rgb, 139, 92, 246), .08); }
+.share-dialog-backdrop { position: fixed; inset: 0; z-index: 9000; background: rgba(0,0,0,.55); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.share-dialog { position: relative; background: var(--panel-solid); border: 1px solid var(--line); border-radius: 18px; padding: 28px 24px 24px; width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 24px 48px rgba(0,0,0,.4); }
+.share-dialog-close { position: absolute; top: 14px; right: 14px; background: transparent; border: none; color: var(--mist); cursor: pointer; font-size: 18px; padding: 4px; line-height: 1; }
+.share-dialog-close:hover { color: var(--text); }
+.share-dialog-title { margin: 0; font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--text); }
+.share-dialog-sub { margin: 0; font-size: 13px; color: var(--mist); line-height: 1.45; }
+.share-dialog-link-box { background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; overflow-x: auto; }
+body.light .share-dialog-link-box { background: rgba(0,0,0,.03); }
+.share-dialog-link { font-family: var(--font-mono); font-size: 12px; color: var(--text); word-break: break-all; user-select: all; }
+.share-dialog-actions { display: flex; flex-direction: column; gap: 8px; }
+.share-dialog-btn { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; transition: all .2s; border: 1px solid var(--line); background: var(--surface); color: var(--text); }
+.share-dialog-btn:hover { border-color: var(--signal); background: rgba(var(--signal-rgb, 139, 92, 246), .06); }
+.share-copy { font-family: var(--font-body); }
+.share-whatsapp { background: rgba(37, 211, 102, .08); border-color: rgba(37, 211, 102, .3); color: #25d366; }
+.share-whatsapp:hover { background: rgba(37, 211, 102, .15); border-color: #25d366; }
+.share-telegram { background: rgba(38, 165, 224, .08); border-color: rgba(38, 165, 224, .3); color: #26a5e0; }
+.share-telegram:hover { background: rgba(38, 165, 224, .15); border-color: #26a5e0; }
+body.light .share-dialog { box-shadow: 0 12px 32px rgba(0,0,0,.12); }
+body.light .share-dialog-btn { border-color: var(--line); background: var(--surface); color: var(--text); }
 body.light .btn-diagnostic { background: var(--surface); color: var(--text); border-color: var(--line); }
 body.light .diagnostic-excellent { background: rgba(16, 185, 129, .06); }
 body.light .diagnostic-fair { background: rgba(245, 158, 11, .05); }
