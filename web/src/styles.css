@@ -285,6 +285,9 @@ button:disabled { cursor: progress; opacity: .55; }
   box-shadow: 0 0 8px var(--ember); animation: pulse 1.5s ease infinite;
 }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+@keyframes bounce-dot { 0%,100% { transform: translateY(0); opacity: .4; } 50% { transform: translateY(-6px); opacity: 1; } }
+@keyframes pulse-glow { 0%,100% { opacity: .6; } 50% { opacity: 1; } }
 .netflix-row-title {
   font-family: var(--font-display); font-size: 18px; font-weight: 800; color: var(--paper);
   margin: 0 0 14px; letter-spacing: -.01em;
@@ -997,6 +1000,10 @@ body.light .diagnostic-poor { background: rgba(239, 68, 68, .05); }
 .stage-fixed .stage-canvas { display: inline-block; }
 video { image-rendering: pixelated; position: relative; z-index: 1; display: block; }
 .placeholder { position: absolute; color: var(--mist); font-size: 14px; font-family: var(--font-mono); z-index: 2; font-weight: 600; }
+.placeholder-inner { display: flex; align-items: center; gap: 10px; justify-content: center; flex-direction: column; }
+.placeholder-spinner { width: 28px; height: 28px; border: 2.5px solid var(--line); border-top-color: var(--signal); border-radius: 50%; animation: spin .8s linear infinite; box-shadow: 0 0 8px var(--signal-glow); }
+.placeholder-spinner.disconnected { border-top-color: var(--ember); box-shadow: 0 0 8px rgba(255,82,82,.3); }
+.placeholder-subtitle { font-size: 12px; color: var(--mist); opacity: .7; margin-top: 4px; }
 
 /* Settings drawer */
 .settings-backdrop { position: fixed; inset: 0; background: rgba(6,7,10,.7); backdrop-filter: blur(6px); display: flex; justify-content: flex-end; z-index: 1100; animation: fadeIn .2s ease both; }

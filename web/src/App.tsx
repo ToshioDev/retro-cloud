@@ -3119,7 +3119,30 @@ export default function App() {
                 }}
               />
             </div>
-            {mediaState !== "Receiving media" && <div className="placeholder">{translate(lang, (mediaKeys[mediaState] as any) ?? "waitingForGameServer")}</div>}
+            {mediaState !== "Receiving media" && (
+              <div className="placeholder">
+                <div className="placeholder-inner">
+                  <div className={`placeholder-spinner ${mediaState === "Game server disconnected" ? "disconnected" : ""}`}></div>
+                  <div>
+                    {translate(lang, (mediaKeys[mediaState] as any) ?? "waitingForGameServer")}
+                    {status === "Connected to signaling" && (
+                      <div className="placeholder-subtitle">{translate(lang, "waitingForGameServerStarting")}</div>
+                    )}
+                    {status === "Answer sent" && (
+                      <div className="placeholder-subtitle">{translate(lang, "waitingForGameServerStreaming")}</div>
+                    )}
+                    {statusKeys[status] && status !== "Connecting" && status !== "Disconnected" &&
+                     status !== "Connected to signaling" && status !== "Answer sent" && status !== mediaState && (
+                      <div className="placeholder-subtitle">{translate(lang, statusKeys[status] as any)}</div>
+                    )}
+                    {!statusKeys[status] && status !== "Connecting" && status !== "Disconnected" &&
+                     status !== "Connected to signaling" && status !== "Answer sent" && (
+                      <div className="placeholder-subtitle">{status}</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
             {canvasHintVisible && !canvasLocked && mediaState === "Receiving media" && (
               <div className="canvas-hint">
                 <IconMove /> {t("canvasDragHint")}

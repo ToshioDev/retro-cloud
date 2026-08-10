@@ -212,6 +212,8 @@ const dict = {
   playersCount: { en: "players", es: "jugadores" },
   joinRoom: { en: "Join", es: "Unirse" },
   waitingForGameServer: { en: "Waiting for game server", es: "Esperando al servidor de juego" },
+  waitingForGameServerStarting: { en: "Starting your game server…", es: "Iniciando el servidor de juego…" },
+  waitingForGameServerStreaming: { en: "Establishing video connection…", es: "Estableciendo conexión de video…" },
   receivingMedia: { en: "Receiving media", es: "Recibiendo transmisión" },
   gameServerDisconnected: { en: "Game server disconnected", es: "Servidor de juego desconectado" },
   crtEffect: { en: "CRT Scanlines", es: "Efecto CRT Arcade" },
