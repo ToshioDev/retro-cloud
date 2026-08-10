@@ -1509,14 +1509,19 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ block: "end" });
   }, [chatMessages]);
 
+  // Binary encoding: send libretro button ID + pressed byte — 2 bytes total, no JSON overhead
+  const BUTTON_TO_ID: Record<string, number> = {
+    B: 0, Y: 1, SELECT: 2, START: 3, UP: 4, DOWN: 5, LEFT: 6, RIGHT: 7,
+    A: 8, X: 9, L: 10, R: 11, L2: 12, R2: 13, L3: 14, R3: 15,
+  };
   function sendInput(button: Button, pressed: boolean) {
-    // Dedupe: ignore a repeated "pressed" for a button already held (keyboard auto-repeat edge cases,
-    // overlapping touch + keyboard, etc.) so we never spam the channel or desync from the true state.
     const isHeld = heldButtonsRef.current.has(button);
     if (pressed === isHeld) return;
     if (pressed) heldButtonsRef.current.add(button); else heldButtonsRef.current.delete(button);
     if (inputRef.current?.readyState !== "open") return;
-    inputRef.current.send(JSON.stringify({ type: "input", player: playerNumberRef.current, button, pressed, timestamp: Date.now() }));
+    const id = BUTTON_TO_ID[button];
+    if (id === undefined) return;
+    inputRef.current.send(new Uint8Array([id, pressed ? 1 : 0]));
   }
 
   function rebindKey(button: Button) {
@@ -2804,10 +2809,7 @@ export default function App() {
                 onClick={() => setLatencyPopoverOpen((v) => !v)}
               >
                 <span className="latency-bars">
-                  <span className={rttMs !== null && rttMs < 200 ? "active" : ""} />
-                  <span className={rttMs !== null && rttMs < 120 ? "active" : ""} />
-                  <span className={rttMs !== null && rttMs < 80 ? "active" : ""} />
-                  <span className={rttMs !== null && rttMs < 50 ? "active" : ""} />
+                  <span /><span /><span /><span />
                 </span>
                 <span className="latency-ms">{reconnecting ? "···" : rttMs !== null ? `${rttMs}` : "—"}</span>
               </button>

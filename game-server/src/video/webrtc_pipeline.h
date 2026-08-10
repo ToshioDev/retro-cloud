@@ -13,13 +13,16 @@ struct _GstElement;
 using GstElement = _GstElement;
 struct _GObject;
 using GObject = _GObject;
+struct _GBytes;
+using GBytes = _GBytes;
 
 class WebRtcPipeline {
 public:
     struct Peer;
 
-    // (player_number, button, pressed). player_number == 0 for unrecognized/host messages.
-    using InputHandler = std::function<void(unsigned player_number, const std::string &button, bool pressed)>;
+    // (player_number, button_id, pressed). player_number == 0 for unrecognized/host messages.
+    // button_id matches libretro RETRO_DEVICE_ID_JOYPAD_* values (0–15).
+    using InputHandler = std::function<void(unsigned player_number, unsigned button_id, bool pressed)>;
 
     WebRtcPipeline();
     ~WebRtcPipeline();

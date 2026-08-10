@@ -74,14 +74,17 @@ void on_ice_candidate(GstElement *, guint mline, gchar *candidate, gpointer user
     std::cout << "[WEBRTC] ICE candidate to " << peer->peer_id << " mline=" << mline << " " << candidate << std::endl;
 }
 
-void on_data_channel_message(GstWebRTCDataChannel *, gchar *message, gpointer user_data) {
+void on_data_channel_message(GstWebRTCDataChannel *, GBytes *message, gpointer user_data) {
     auto *peer = static_cast<WebRtcPipeline::Peer *>(user_data);
     const auto &handler = peer->pipeline->input_handler();
     if (!handler || !message) return;
-    const auto parsed = json::parse(message, nullptr, false);
-    if (parsed.is_discarded() || parsed.value("type", "") != "input") return;
-    if (!parsed.contains("button") || !parsed.contains("pressed")) return;
-    handler(peer->player_number, parsed.at("button").get<std::string>(), parsed.at("pressed").get<bool>());
+    gsize size = 0;
+    const auto *data = static_cast<const std::uint8_t *>(g_bytes_get_data(message, &size));
+    if (size < 2) return;
+    const unsigned id = data[0];
+    const bool pressed = data[1] != 0;
+    if (id >= 16) return;
+    handler(peer->player_number, id, pressed);
 }
 
 void drain_bus(GstElement *pipeline) {
@@ -231,7 +234,7 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     g_signal_emit_by_name(peer->webrtcbin, "create-data-channel", "input", nullptr, &channel);
     peer->data_channel = reinterpret_cast<GObject *>(channel);
     if (channel) {
-        g_signal_connect(channel, "on-message-string", G_CALLBACK(on_data_channel_message), peer_ptr);
+        g_signal_connect(channel, "on-message-data", G_CALLBACK(on_data_channel_message), peer_ptr);
     } else {
         std::cerr << "[WEBRTC] failed to create input data channel for peer " << peer_id << std::endl;
     }

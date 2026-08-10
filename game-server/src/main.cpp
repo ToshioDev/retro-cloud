@@ -241,10 +241,10 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
                 ? static_cast<unsigned>(runtime.av.timing.sample_rate) : 48000;
             runtime.webrtc_pipeline->start(scaled_width, scaled_height, runtime.av.timing.fps > 1.0 ? runtime.av.timing.fps : 60.0,
                                            runtime.video_bitrate_kbps, sample_rate, runtime.signaling_client.get(), runtime.signaling_room,
-                                           [](unsigned player_number, const std::string &button, bool pressed) {
+                                           [](unsigned player_number, unsigned button_id, bool pressed) {
                                                if (player_number == 0 || player_number > kMaxPlayers) return;
-                                               const auto id = button_id(button);
-                                               if (id >= 0) button_state[player_number - 1][id] = pressed;
+                                               if (button_id >= 16) return;
+                                               button_state[player_number - 1][button_id] = pressed;
                                            });
         }
         runtime.webrtc_pipeline->push_rgba(runtime.framebuffer_scaled.data(), runtime.framebuffer_scaled.size(), runtime.frames);
