@@ -147,6 +147,46 @@ function IconCrown() {
     <path d="M4 18h16l1-9-5 3-4-6-4 6-5-3 1 9Z" />
   </svg>;
 }
+function IconSignal() {
+  return <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 18h.01" />
+    <path d="M18 12h.01" />
+    <path d="M6 12h.01" />
+    <path d="M15.09 7.18a3 3 0 0 0-5.83 1.26 3 3 0 1 0 5.83-1.26z" />
+  </svg>;
+}
+function IconUser() {
+  return <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 21V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v16" />
+    <circle cx="9" cy="9" r="2" />
+    <path d="M15 15.5A2 2 0 1 0 15 9a2 2 0 0 0 0 6.5Z" />
+  </svg>;
+}
+function IconCopy() {
+  return <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+    <path d="M6 6L6 6c-1.1 0-2 .9-2 2v8a2 2 0 0 0 2 2h8c1.1 0 2-.9 2-2v-4" />
+    <path d="M13 2h6a2 2 0 0 1 2 2v6M13 2v6h6M13 2l-6 6" />
+  </svg>;
+}
+function IconEye({ open }: { open: boolean }) {
+  return open ? (
+    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 1l22 22M14 14a3 3 0 1 1-4-4M8.7 4.2A10.45 10.45 0 0 1 12 3c7 0 11 9 11 9-.6.9-1.4 1.8-2.3 2.5M3 3l2 2" />
+    </svg>
+  );
+}
+function IconWifi() {
+  return <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 13l6 6 6-6" />
+    <path d="M12 4c3.87 3.87 5.34 9.17 4.06 14H7.94c-1.28-4.83.3-10.13 4.06-14Z" />
+  </svg>;
+}
 function IconProfile() {
   return <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.5-6 8-6s8 2 8 6" />
@@ -2963,6 +3003,7 @@ export default function App() {
                   <span /><span /><span /><span />
                 </span>
                 <span className="latency-ms">{reconnecting ? "···" : rttMs !== null ? `${rttMs}` : "—"}</span>
+                <IconSignal />
               </button>
               {latencyPopoverOpen && (
                 <>
@@ -2992,11 +3033,15 @@ export default function App() {
                       <span>{t("you")}</span>
                       <span>P{playerNumber ?? 1}</span>
                     </div>
+                    <div className="latency-popover-row">
+                      <span><IconWifi /> Input</span>
+                      <span>{inputState}</span>
+                    </div>
                   </div>
                 </>
               )}
             </div>
-            {playerNumber && <span className="player-pill accent">P{playerNumber}</span>}
+            {playerNumber && <span className="player-pill accent"><IconUser /> P{playerNumber}</span>}
             <button
               className="player-pill muted room-code-pill"
               onClick={() => {
@@ -3007,7 +3052,7 @@ export default function App() {
               }}
               title={t("copyRoomCode")}
             >
-              {roomCopied ? `✓ ${t("roomCodeCopied")}` : room}
+              {roomCopied ? <><IconCopy /> ✓</> : <><IconCopy /> {room}</>}
             </button>
             <button
               className="icon-button topbar-desktop-only"
