@@ -143,7 +143,7 @@ void WebRtcPipeline::start(unsigned width, unsigned height, double fps, unsigned
         // usually mono or near-mono source material) actually needs; explicit low bitrate saves real
         // bandwidth for every viewer at no audible cost, and drops further on the low-bandwidth video tier.
         "appsrc name=audio_source is-live=true format=time do-timestamp=true block=false max-buffers=2 leaky-type=downstream ! "
-        "audioconvert ! audioresample ! audio/x-raw,rate=48000 ! opusenc bitrate=" + std::to_string(bitrate_kbps <= 800 ? 24000 : 40000) + " max-latency=2 ! rtpopuspay pt=97 ! "
+        "audioconvert ! audioresample ! audio/x-raw,rate=48000 ! opusenc bitrate=" + std::to_string(bitrate_kbps <= 800 ? 24000 : 40000) + " frame-size=10 ! rtpopuspay pt=97 ! "
         "application/x-rtp,media=audio,encoding-name=OPUS,payload=97,clock-rate=48000 ! tee name=audio_tee allow-not-linked=true";
     GError *error = nullptr;
     pipeline_ = gst_parse_launch(description.c_str(), &error);
