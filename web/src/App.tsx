@@ -42,8 +42,25 @@ const CONSOLES: { id: string; label: string; sub: string; active: boolean; hue: 
   { id: "n64", label: "N64", sub: "Próximamente", active: false, hue: "n64", gradient: "linear-gradient(135deg, #ef4444, #0f172a)" },
 ];
 
-const signalingUrl = import.meta.env.VITE_SIGNALING_URL ?? "ws://localhost:8080/signaling";
-const apiBase = signalingUrl.replace(/^ws/, "http").replace(/\/signaling\/?$/, "");
+// ── Signaling URL auto-detection ──────────────────────────────────────────────
+// VITE_SIGNALING_URL is a build-time constant (set in Dockerfile / .env).
+// When it's not set (production via Coolify), we derive the URL at runtime from
+// the page's own location: same hostname, same port, /signaling path.
+// This works regardless of what domain/port Coolify assigns.
+function resolveSignalingUrl(): { ws: string; http: string } {
+  const envUrl = import.meta.env.VITE_SIGNALING_URL as string | undefined;
+  if (envUrl) {
+    const http = envUrl.replace(/^ws/, "http").replace(/\/signaling\/?$/, "");
+    return { ws: envUrl, http };
+  }
+  // Runtime detection: use the current page's host (works in any deployment)
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const httpProto = location.protocol;
+  const ws = `${proto}//${location.host}/signaling`;
+  const http = `${httpProto}//${location.host}`;
+  return { ws, http };
+}
+const { ws: signalingUrl, http: apiBase } = resolveSignalingUrl();
 const roomsUrl = `${apiBase}/rooms`;
 const romsUrl = `${apiBase}/roms`;
 const defaultRoom = import.meta.env.VITE_ROOM ?? "";

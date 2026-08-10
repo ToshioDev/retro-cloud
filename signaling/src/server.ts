@@ -468,6 +468,19 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     response.end("pong");
     return;
   }
+  // Health check for Coolify load balancer (plain text, minimal overhead)
+  if (request.method === "GET" && request.url === "/") {
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.end("ok");
+    return;
+  }
+  // Config endpoint: tells the frontend how to reach the signaling server.
+  // Avoids hard-coding the WebSocket URL at build time — works in any deployment.
+  if (request.method === "GET" && request.url === "/config") {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ signalingPort: port }));
+    return;
+  }
   if (request.method === "GET" && request.url === "/status") {
     const activePeers = [...peers.values()].filter((p) => p.room).length;
     const roomsWithHosts = new Set<string>();
@@ -1074,10 +1087,15 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
 
 const webSockets = new WebSocketServer({ noServer: true });
 httpServer.on("upgrade", (request, socket, head) => {
-  if (request.url !== "/signaling") {
+  // Accept /signaling with or without trailing slash; strip query strings from reverse proxies
+  const path = request.url?.split("?")[0]?.replace(/\/+$/, "") ?? "";
+  const clientAddr = request.headers["x-forwarded-for"] ?? request.socket.remoteAddress ?? "unknown";
+  if (path !== "/signaling") {
+    console.log(`[WS] rejected upgrade for path="${request.url}" from ${clientAddr}`);
     socket.destroy();
     return;
   }
+  console.log(`[WS] upgrade accepted from ${clientAddr}`);
   webSockets.handleUpgrade(request, socket, head, (client) => webSockets.emit("connection", client, request));
 });
 
