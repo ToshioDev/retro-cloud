@@ -2832,8 +2832,16 @@ export default function App() {
                       <span>{translate(lang, (statusKeys[status] as any) ?? "statusDisconnected")}</span>
                     </div>
                     <div className="latency-popover-row">
-                      <span>{t("latency")}</span>
+                      <span>RTT</span>
                       <span>{rttMs !== null ? `${rttMs} ms` : "—"}</span>
+                    </div>
+                    <div className="latency-popover-row">
+                      <span>{t("latency")} est.</span>
+                      <span>{rttMs !== null ? `~${Math.round(rttMs + 15)} ms` : "—"}</span>
+                    </div>
+                    <div className="latency-popover-row" style={{ opacity: .55, fontSize: "0.78em" }}>
+                      <span></span>
+                      <span style={{ textAlign: "right" }}>{rttMs !== null ? `red ${rttMs} + codec ~15` : ""}</span>
                     </div>
                     <div className="latency-popover-row">
                       <span>{t("room")}</span>

@@ -263,7 +263,7 @@ void WebRtcPipeline::remove_peer(const std::string &peer_id) {
 
 void WebRtcPipeline::push_rgba(const std::uint8_t *data, std::size_t size, std::uint64_t frame_number) {
     if (!active()) return;
-    drain_bus(pipeline_);
+    if (frame_number % 30 == 0) drain_bus(pipeline_);
     auto *buffer = gst_buffer_new_allocate(nullptr, size, nullptr);
     if (!buffer) throw std::runtime_error("cannot allocate WebRTC video buffer");
     gst_buffer_fill(buffer, 0, data, size);
