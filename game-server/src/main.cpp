@@ -367,6 +367,7 @@ int main() {
         gst_init(nullptr, nullptr);
 
         if (runtime.webrtc_debug) {
+            log_line("[WEBRTC]", "connecting to signaling at " + runtime.signaling_url + " room=" + runtime.signaling_room);
             runtime.signaling_client = std::make_unique<SignalingClient>();
             runtime.signaling_client->connect(runtime.signaling_url, runtime.signaling_room,
                 [](const std::string &type, const std::string &payload, const std::string &from) {
@@ -376,7 +377,10 @@ int main() {
                         const auto peer_id = message.value("peerId", std::string());
                         const auto role = message.value("role", std::string());
                         if (role == "host") {
-                            if (runtime.own_peer_id.empty()) runtime.own_peer_id = peer_id;
+                            if (runtime.own_peer_id.empty()) {
+                                runtime.own_peer_id = peer_id;
+                                log_line("[WEBRTC]", "registered as host peer=" + peer_id + " room=" + runtime.signaling_room);
+                            }
                             return;
                         }
                         const auto player_number = message.value("playerNumber", 0u);
@@ -392,6 +396,7 @@ int main() {
                         const auto message = json::parse(payload, nullptr, false);
                         const auto peer_id = !message.is_discarded() ? message.value("peerId", std::string()) : std::string();
                         if (peer_id.empty()) return;
+                        log_line("[WEBRTC]", "player left peer=" + peer_id);
                         queue_peer_action([peer_id]() {
                             if (runtime.webrtc_pipeline) runtime.webrtc_pipeline->remove_peer(peer_id);
                         });

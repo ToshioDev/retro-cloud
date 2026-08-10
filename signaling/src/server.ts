@@ -30,7 +30,11 @@ const romsHostDir = process.env.ROMS_DIR ?? "";
 const romsLocalDir = "/roms";
 const biosHostDir = process.env.BIOS_DIR ?? "";
 const biosLocalDir = "/system";
-const signalingUrlForGameServer = process.env.GAME_SERVER_SIGNALING_URL ?? "ws://signaling:8080/signaling";
+// Game-server containers use NetworkMode:"host", so they share the host network and can reach this
+// process via localhost.  Docker-internal DNS names like "signaling" don't resolve under host networking,
+// so we build the URL from the port this process actually listens on.  An explicit override is still
+// honoured for environments where the port mapping is different (e.g. Coolify reverse-proxy).
+const signalingUrlForGameServer = process.env.GAME_SERVER_SIGNALING_URL ?? `ws://localhost:${port}/signaling`;
 const publicIp = process.env.PUBLIC_IP ?? "";
 const docker = romsHostDir ? new Docker() : null;
 const managedRooms = new Map<string, { containerId: string; spawnTime: number }>();
@@ -275,17 +279,39 @@ const WATCHDOG_INTERVAL_MS = 60_000;
 
 async function watchdogCleanup() {
   if (!docker) return;
+  const now = Date.now();
   try {
     // 1. Stop containers exceeding max lifetime
     for (const [room, info] of managedRooms) {
-      const age = Date.now() - info.spawnTime;
+      const age = now - info.spawnTime;
       if (age > MAX_GAME_SERVER_LIFETIME_MS) {
         console.log(`[WATCHDOG] room ${room} exceeded max lifetime (${Math.round(age / 60000)} min), tearing down`);
         await teardownRoom(room);
       }
     }
 
-    // 2. Enforce max concurrent limit: if over limit, tear down oldest rooms first
+    // 2. Health-check each tracked container: if Docker reports it as exited/restarting, clean it up
+    for (const [room, info] of managedRooms) {
+      try {
+        const container = docker.getContainer(info.containerId);
+        const inspect = await container.inspect();
+        const state = inspect.State;
+        if (!state.Running && !state.Paused) {
+          console.log(`[WATCHDOG] room ${room} container is not running (status=${state.Status}, exitCode=${state.ExitCode}), tearing down`);
+          await teardownRoom(room);
+        }
+      } catch {
+        // Container no longer exists in Docker at all — clean up the tracking
+        console.log(`[WATCHDOG] room ${room} container ${info.containerId.slice(0, 12)} missing from Docker, cleaning up`);
+        managedRooms.delete(room);
+        roomOwners.delete(room);
+        roomVisibility.delete(room);
+        roomFiles.delete(room);
+        rooms.delete(room);
+      }
+    }
+
+    // 3. Enforce max concurrent limit: if over limit, tear down oldest rooms first
     if (managedRooms.size > MAX_CONCURRENT_GAME_SERVERS) {
       const sorted = [...managedRooms.entries()].sort((a, b) => a[1].spawnTime - b[1].spawnTime);
       while (sorted.length > MAX_CONCURRENT_GAME_SERVERS) {
@@ -295,7 +321,7 @@ async function watchdogCleanup() {
       }
     }
 
-    // 3. Kill orphaned game-server containers not tracked by this instance
+    // 4. Kill orphaned game-server containers not tracked by this instance
     const containers = await docker.listContainers({ all: false, filters: JSON.stringify({ ancestor: [gameServerImage] }) });
     const managedIds = new Set([...managedRooms.values()].map((info) => info.containerId));
     for (const info of containers) {
@@ -307,9 +333,45 @@ async function watchdogCleanup() {
         console.error(`[WATCHDOG] failed to stop orphan ${info.Id.slice(0, 12)}:`, error instanceof Error ? error.message : error);
       }
     }
+
+    // 5. Log status summary
+    if (managedRooms.size > 0) {
+      const ages = [...managedRooms.entries()].map(([room, info]) => `${room}(${Math.round((now - info.spawnTime) / 60000)}m)`);
+      console.log(`[WATCHDOG] status: ${managedRooms.size}/${MAX_CONCURRENT_GAME_SERVERS} rooms active [${ages.join(", ")}]`);
+    }
   } catch (error) {
     console.error("[WATCHDOG] cleanup cycle failed:", error instanceof Error ? error.message : error);
   }
+}
+
+// ── Rate limiting ──────────────────────────────────────────────────────────────
+// Simple in-memory sliding-window rate limiter.  Good enough for a single-process signaling server;
+// replaces itself with Redis-backed limiter if we scale to multiple processes later.
+const rateLimits = new Map<string, { count: number; windowStart: number }>();
+
+function rateLimit(key: string, maxRequests: number, windowMs: number): boolean {
+  const now = Date.now();
+  const entry = rateLimits.get(key);
+  if (!entry || now - entry.windowStart > windowMs) {
+    rateLimits.set(key, { count: 1, windowStart: now });
+    return false; // allowed
+  }
+  entry.count++;
+  return entry.count > maxRequests; // true = blocked
+}
+
+// Periodic cleanup of stale rate-limit entries (every 5 min)
+setInterval(() => {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [key, entry] of rateLimits) {
+    if (entry.windowStart < cutoff) rateLimits.delete(key);
+  }
+}, 5 * 60 * 1000);
+
+function clientIp(request: import("node:http").IncomingMessage): string {
+  const forwarded = request.headers["x-forwarded-for"];
+  if (typeof forwarded === "string") return forwarded.split(",")[0].trim();
+  return request.socket.remoteAddress ?? "unknown";
 }
 
 function bearerToken(request: import("node:http").IncomingMessage): string | undefined {
@@ -356,6 +418,24 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     }
     response.writeHead(200, { "content-type": "text/plain", "cache-control": "no-store" });
     response.end("pong");
+    return;
+  }
+  if (request.method === "GET" && request.url === "/status") {
+    const activePeers = [...peers.values()].filter((p) => p.room).length;
+    const roomsWithHosts = new Set<string>();
+    for (const peer of peers.values()) {
+      if (peer.room && peer.role === "host") roomsWithHosts.add(peer.room);
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      uptime: Math.round(process.uptime()),
+      peers: peers.size,
+      activePeers,
+      activeRooms: roomsWithHosts.size,
+      managedContainers: managedRooms.size,
+      maxContainers: MAX_CONCURRENT_GAME_SERVERS,
+      memoryUsage: process.memoryUsage(),
+    }));
     return;
   }
   if (request.method === "GET" && request.url === "/rooms") {
@@ -495,6 +575,11 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
       response.end(JSON.stringify({ error: "authentication required" }));
       return;
     }
+    if (rateLimit(`rom-upload:${username}`, 10, 60 * 60 * 1000)) {
+      response.writeHead(429, { "content-type": "application/json", "retry-after": "60" });
+      response.end(JSON.stringify({ error: "too many upload attempts, try again later" }));
+      return;
+    }
     const requestedName = basename(new URL(request.url ?? "/roms", "http://internal").searchParams.get("filename") ?? "");
     const game = gameForExtension(requestedName);
     if (!requestedName || !game) {
@@ -630,6 +715,11 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     return;
   }
   if (request.method === "POST" && request.url === "/auth/register") {
+    if (rateLimit(`register:${clientIp(request)}`, 3, 60 * 60 * 1000)) {
+      response.writeHead(429, { "content-type": "application/json", "retry-after": "60" });
+      response.end(JSON.stringify({ error: "too many registration attempts, try again later" }));
+      return;
+    }
     readJsonBody<{ username?: string; password?: string; email?: string }>(request)
       .then(async (body) => {
         const { token } = await auth.register(String(body.username ?? ""), String(body.password ?? ""), String(body.email ?? ""));
@@ -643,6 +733,11 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     return;
   }
   if (request.method === "POST" && request.url === "/auth/login") {
+    if (rateLimit(`login:${clientIp(request)}`, 10, 60 * 60 * 1000)) {
+      response.writeHead(429, { "content-type": "application/json", "retry-after": "60" });
+      response.end(JSON.stringify({ error: "too many login attempts, try again later" }));
+      return;
+    }
     readJsonBody<{ username?: string; password?: string }>(request)
       .then(async (body) => {
         const { token } = await auth.login(String(body.username ?? ""), String(body.password ?? ""));
@@ -827,6 +922,11 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     if (!username) {
       response.writeHead(401, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    if (rateLimit(`room:${username}`, 10, 60 * 60 * 1000)) {
+      response.writeHead(429, { "content-type": "application/json", "retry-after": "60" });
+      response.end(JSON.stringify({ error: "too many room creation attempts, try again later" }));
       return;
     }
     readJsonBody<{ file?: string; visibility?: string; bandwidth?: string }>(request)
