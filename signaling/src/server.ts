@@ -418,14 +418,21 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
       return;
     }
     const shared = await auth.getSharedRoms(username);
-    const roms = await listRoms(username);
-    const romMap = new Map(roms.map((r) => [r.file, r]));
-    const enriched = shared.map((s) => ({
-      ...s,
-      rom: romMap.get(s.rom_file) ?? null,
-    }));
+    const owners = await loadRomOwners();
+    const entries: Array<{ owner: string; friend: string; rom_file: string; rom: { file: string; game: string; size: number; owner: string } | null }> = [];
+    for (const s of shared) {
+      let rom: { file: string; game: string; size: number; owner: string } | null = null;
+      try {
+        const info = await stat(join(romsLocalDir, s.rom_file));
+        if (info.isFile()) {
+          const game = gameForExtension(s.rom_file);
+          if (game) rom = { file: s.rom_file, game, size: info.size, owner: s.owner };
+        }
+      } catch { /* ROM file missing */ }
+      entries.push({ ...s, rom });
+    }
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({ shared: enriched }));
+    response.end(JSON.stringify({ shared: entries }));
     return;
   }
   if (request.method === "POST" && (request.url === "/roms" || request.url?.startsWith("/roms?"))) {
@@ -771,8 +778,21 @@ async function handleRequest(request: import("node:http").IncomingMessage, respo
     }
     readJsonBody<{ file?: string; visibility?: string; bandwidth?: string }>(request)
       .then(async (body) => {
-        const roms = await listRoms(username);
-        const rom = roms.find((entry) => entry.file === body.file) ?? roms[0];
+        let roms = await listRoms(username);
+        let rom = roms.find((entry) => entry.file === body.file) ?? roms[0];
+        if (!rom && body.file) {
+          const shared = await auth.getSharedRoms(username);
+          const sharedEntry = shared.find((s) => s.rom_file === body.file);
+          if (sharedEntry) {
+            try {
+              const info = await stat(join(romsLocalDir, sharedEntry.rom_file));
+              const game = gameForExtension(sharedEntry.rom_file);
+              if (info.isFile() && game) {
+                rom = { file: sharedEntry.rom_file, game, size: info.size, owner: sharedEntry.owner };
+              }
+            } catch { /* file missing */ }
+          }
+        }
         if (!rom) throw new Error("no ROMs available: upload one first");
         const visibility = body.visibility === "private" ? "private" : "public";
         const bandwidth = ["high", "medium", "low"].includes(body.bandwidth ?? "") ? body.bandwidth! : "medium";

@@ -78,7 +78,10 @@ body {
 input, textarea, [contenteditable] {
   -webkit-user-select: text; user-select: text; -webkit-touch-callout: default;
 }
-main { width: min(1180px, calc(100% - 32px - 84px)); margin: 0 auto 0 calc(84px + 24px); padding: 28px 0 60px; }
+/* Fills the whole area to the right of the fixed 84px side rail — no max-width cap, so wide screens use
+   all of it instead of leaving dead space on the right. Horizontal breathing room comes from padding
+   rather than a narrower width, so grids inside can still stretch edge to edge. */
+main { width: calc(100% - 84px); margin: 0 0 0 84px; padding: 20px 24px 60px; }
 main.in-room { width: 100%; max-width: none; margin: 0; padding: 0 320px 0 0; height: 100vh; overflow: hidden; }
 
 /* Header / brand */
@@ -1502,7 +1505,7 @@ footer { color: var(--mist); font-size: 12px; margin-top: 16px; font-family: var
     background: rgba(139, 92, 246, 0.25); color: #c084fc;
     border-color: rgba(139, 92, 246, 0.5);
   }
-  main:not(.in-room) { padding-bottom: 84px; margin-left: auto; width: min(880px, calc(100% - 32px)); }
+  main:not(.in-room) { padding-bottom: 84px; margin-left: 0; width: 100%; padding: 16px 24px 84px; }
   .side-rail { display: none; }
   .bottom-tab-bar {
     display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 8;
