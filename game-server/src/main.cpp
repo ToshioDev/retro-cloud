@@ -19,6 +19,7 @@
 #include <memory>
 #include <mutex>
 #include <random>
+#include <csignal>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -30,6 +31,15 @@ namespace {
 
 constexpr unsigned kMaxPlayers = 4;
 std::atomic<bool> button_state[kMaxPlayers][16] = {};
+
+// Set on SIGTERM/SIGINT so the emulation loop can exit cleanly instead of
+// being hard-killed by Docker's 10s stop timeout. Prevents zombies and
+// guarantees teardown of the WebRTC pipeline / signaling connection.
+std::atomic<bool> g_should_exit{false};
+
+void handle_signal(int /*signum*/) {
+    g_should_exit.store(true);
+}
 
 int button_id(const std::string &button) {
     if (button == "B") return RETRO_DEVICE_ID_JOYPAD_B;
@@ -177,7 +187,15 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
     // Defensive clamp: a core that under-reports geometry.max_width/max_height and later exceeds it would
     // otherwise write past the canvas — clip to what the negotiated caps actually declared.
     const auto draw_width = std::min(width, canvas_width);
-    runtime.framebuffer.assign(static_cast<std::size_t>(canvas_width) * canvas_height * 4, 0);
+    // Reuse a persistent framebuffer instead of re-allocating + zero-filling (memset) the whole canvas
+    // every frame (640x480x4 = 1.2MB → 72MB/s of pointless memset at 60fps). Only resize when the canvas
+    // size changes, and only zero the padding rows the conversion loop doesn't overwrite.
+    const auto canvas_size = static_cast<std::size_t>(canvas_width) * canvas_height * 4;
+    if (runtime.framebuffer.size() != canvas_size) runtime.framebuffer.resize(canvas_size);
+    if (height < canvas_height) {
+        std::memset(runtime.framebuffer.data() + static_cast<std::size_t>(height) * canvas_width * 4, 0,
+                    canvas_size - static_cast<std::size_t>(height) * canvas_width * 4);
+    }
     for (unsigned row = 0; row < height && row < canvas_height; ++row) {
         const auto *source = static_cast<const std::uint8_t *>(data) + static_cast<std::size_t>(row) * pitch;
         auto *target = runtime.framebuffer.data() + static_cast<std::size_t>(row) * canvas_width * 4;
@@ -248,6 +266,10 @@ void video_refresh(const void *data, unsigned width, unsigned height, std::size_
                                            });
         }
         runtime.webrtc_pipeline->push_rgba(runtime.framebuffer_scaled.data(), runtime.framebuffer_scaled.size(), runtime.frames);
+        std::uint64_t dropped = runtime.webrtc_pipeline->dropped_frames();
+        if (dropped > 0 && runtime.frames % static_cast<std::uint64_t>(fps) == 0) {
+            log_line("[WEBRTC]", "dropped_frames=" + std::to_string(dropped));
+        }
     }
     ++runtime.frames;
 }
@@ -344,6 +366,8 @@ GameConfig game_config() {
 
 int main() {
     try {
+        std::signal(SIGTERM, handle_signal);
+        std::signal(SIGINT, handle_signal);
         runtime.game_id = env_or("GAME", "nes");
         const auto config = game_config();
         const unsigned requested_fps = static_cast<unsigned>(std::stoul(env_or("VIDEO_FPS", "60")));
@@ -456,7 +480,7 @@ int main() {
             ? next_frame + std::chrono::seconds(run_for_seconds)
             : std::chrono::steady_clock::time_point::max();
         bool frame_dumped = false;
-        while (std::chrono::steady_clock::now() < stop_at) {
+        while (!g_should_exit.load() && std::chrono::steady_clock::now() < stop_at) {
             if (runtime.signaling_client) runtime.signaling_client->poll();
             run();
             if (!frame_dumped && !frame_dump_path.empty() && runtime.frames >= frame_dump_frame) {
@@ -478,8 +502,8 @@ int main() {
                 log_line("[AUDIO]", "samples=" + std::to_string(runtime.audio_samples));
             }
         }
-
         if (run_for_seconds > 0) log_line("[EMULATOR]", "test run complete");
+        if (g_should_exit.load()) log_line("[EMULATOR]", "received shutdown signal, stopping");
 
         unload_game();
         deinit();
