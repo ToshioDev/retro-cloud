@@ -277,8 +277,11 @@ async function reconcileOrphanedGameServers() {
 const MAX_CONCURRENT_GAME_SERVERS = Number(process.env.MAX_GAME_SERVERS ?? "4");
 
 // Maximum lifetime for a game-server container (ms). Rooms that stay open forever accumulate state
-// and risk leaking resources. 4 hours is generous enough for marathon sessions but forces a refresh.
-const MAX_GAME_SERVER_LIFETIME_MS = 4 * 60 * 60 * 1000;
+// and risk leaking resources. Capped below the 1h TURN credential TTL so a long-lived room never
+// loses TURN connectivity: generateTurnCredentials() issues HMAC creds valid for turnTtlSeconds (3600s)
+// and the game-server container bakes them at spawn with no refresh path, so the container must
+// restart before the credentials expire. 50 min leaves a 10-min safety margin.
+const MAX_GAME_SERVER_LIFETIME_MS = 50 * 60 * 1000;
 
 // How often the watchdog runs (ms). Every 60 seconds: fast enough to catch problems before they
 // cascade, infrequent enough to not add meaningful overhead.
@@ -1272,6 +1275,6 @@ void reconcileOrphanedGameServers().then(() => {
   setInterval(watchdogCleanup, WATCHDOG_INTERVAL_MS);
   // Resource monitoring every 5 minutes (lightweight, only when containers are running)
   setInterval(resourceMonitor, 5 * 60 * 1000);
-  console.log(`[WATCHDOG] started (interval=${WATCHDOG_INTERVAL_MS / 1000}s, max-rooms=${MAX_CONCURRENT_GAME_SERVERS}, max-lifetime=${MAX_GAME_SERVER_LIFETIME_MS / 3600000}h)`);
+  console.log(`[WATCHDOG] started (interval=${WATCHDOG_INTERVAL_MS / 1000}s, max-rooms=${MAX_CONCURRENT_GAME_SERVERS}, max-lifetime=${MAX_GAME_SERVER_LIFETIME_MS / 60000}min)`);
   console.log(`[MONITOR] resource monitoring enabled (interval=300s)`);
 });

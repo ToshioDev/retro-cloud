@@ -282,13 +282,15 @@ void WebRtcPipeline::add_peer(const std::string &peer_id, unsigned player_number
     g_signal_connect(peer->webrtcbin, "on-ice-candidate", G_CALLBACK(on_ice_candidate), peer_ptr);
 
     GstWebRTCDataChannel *channel = nullptr;
-    // Unreliable + unordered: game input benefits from low latency over guaranteed delivery.
-    // Each message carries the full 16-bit button bitmask, so a lost packet is corrected by the
-    // very next key event — no stuck buttons, no retransmit-induced head-of-line blocking.
-    // "ordered" and "max-retransmits" are construct-only on GstWebRTCDataChannel — setting them with
-    // g_object_set() after creation only logs "property set after construction" and is ignored, so
-    // they have to travel in the options structure passed to create-data-channel.
-    auto *options = gst_structure_new("options", "ordered", G_TYPE_BOOLEAN, FALSE, "max-retransmits", G_TYPE_INT, 0,
+    // Ordered + no-retransmit: preserves input event sequence (no ghosting from
+    // reordered packets) while still dropping any late packet on the floor —
+    // no head-of-line blocking from SCTP retransmission. Each message carries
+    // the full 16-bit button bitmask, so a dropped packet is corrected by the
+    // very next key event. "ordered" and "max-retransmits" are construct-only
+    // on GstWebRTCDataChannel — setting them with g_object_set() after creation
+    // only logs "property set after construction" and is ignored, so they have
+    // to travel in the options structure passed to create-data-channel.
+    auto *options = gst_structure_new("options", "ordered", G_TYPE_BOOLEAN, TRUE, "max-retransmits", G_TYPE_INT, 0,
                                       nullptr);
     g_signal_emit_by_name(peer->webrtcbin, "create-data-channel", "input", options, &channel);
     gst_structure_free(options);
@@ -343,11 +345,16 @@ void WebRtcPipeline::push_rgba(const std::uint8_t *data, std::size_t size, std::
     if (!active()) return;
     if (frame_number % 30 == 0) drain_bus(pipeline_);
     auto *buffer = gst_buffer_new_allocate(nullptr, size, nullptr);
-    if (!buffer) throw std::runtime_error("cannot allocate WebRTC video buffer");
+    if (!buffer) {
+        ++dropped_frames_;
+        std::cerr << "[WEBRTC] video buffer allocation failed (frame " << frame_number << ")" << std::endl;
+        return;
+    }
     gst_buffer_fill(buffer, 0, data, size);
     GST_BUFFER_DURATION(buffer) = frame_duration_ns_;
     if (gst_app_src_push_buffer(GST_APP_SRC(source_), buffer) != GST_FLOW_OK) {
-        throw std::runtime_error("webrtcbin appsrc rejected video frame");
+        ++dropped_frames_;
+        std::cerr << "[WEBRTC] video appsrc rejected frame " << frame_number << std::endl;
     }
 }
 
@@ -355,7 +362,10 @@ void WebRtcPipeline::push_pcm(const std::int16_t *data, std::size_t frames) {
     if (!active() || !audio_source_ || frames == 0) return;
     const auto size = frames * 2 * sizeof(std::int16_t);
     auto *buffer = gst_buffer_new_allocate(nullptr, size, nullptr);
-    if (!buffer) throw std::runtime_error("cannot allocate WebRTC audio buffer");
+    if (!buffer) {
+        std::cerr << "[WEBRTC] audio buffer allocation failed" << std::endl;
+        return;
+    }
     gst_buffer_fill(buffer, 0, data, size);
     const auto duration = static_cast<std::uint64_t>(frames) * 1'000'000'000ULL / sample_rate_;
     GST_BUFFER_DURATION(buffer) = duration;

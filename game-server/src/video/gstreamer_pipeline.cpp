@@ -65,7 +65,10 @@ void GStreamerPipeline::start(unsigned width, unsigned height, double fps, const
 void GStreamerPipeline::push_rgba(const std::uint8_t *data, std::size_t size, std::uint64_t frame_number) {
     if (!active()) return;
     auto *buffer = gst_buffer_new_allocate(nullptr, size, nullptr);
-    if (!buffer) throw std::runtime_error("cannot allocate GStreamer video buffer");
+    if (!buffer) {
+        g_printerr("[VIDEO] GStreamer buffer allocation failed (frame %lu)\n", frame_number);
+        return;
+    }
     gst_buffer_fill(buffer, 0, data, size);
     GST_BUFFER_PTS(buffer) = frame_number * frame_duration_ns_;
     GST_BUFFER_DTS(buffer) = GST_CLOCK_TIME_NONE;
@@ -73,7 +76,6 @@ void GStreamerPipeline::push_rgba(const std::uint8_t *data, std::size_t size, st
     const auto result = gst_app_src_push_buffer(GST_APP_SRC(source_), buffer);
     if (result != GST_FLOW_OK) {
         g_printerr("[VIDEO] GStreamer push failed: %s\n", gst_flow_get_name(result));
-        throw std::runtime_error("GStreamer appsrc rejected video frame");
     }
 }
 
