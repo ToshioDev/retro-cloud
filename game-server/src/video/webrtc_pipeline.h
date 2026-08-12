@@ -43,6 +43,7 @@ public:
     SignalingClient *signaling_client() const { return signaling_; }
     const std::string &room() const { return room_; }
     const InputHandler &input_handler() const { return input_handler_; }
+    std::uint64_t dropped_frames() const { return dropped_frames_; }
     void stop();
     bool active() const;
 
@@ -60,4 +61,8 @@ private:
     std::string room_;
     InputHandler input_handler_;
     std::map<std::string, std::unique_ptr<Peer>> peers_;
+    // Frames dropped by the encoder pipeline (appsrc rejection / alloc failure).
+    // Never throws — callbacks run across the C libretro boundary where a
+    // thrown exception is undefined behaviour and kills the process.
+    std::uint64_t dropped_frames_ = 0;
 };
