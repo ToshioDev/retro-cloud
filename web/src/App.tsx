@@ -1,0 +1,3541 @@
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { type Lang, loadLang, translate } from "./i18n";
+import { isSoundEnabled, setSoundEnabled, playClickSound, playJoinSound, playSuccessSound, playChatSound } from "./soundFx";
+
+type SignalMessage = { type: string; room?: string; from?: string; payload?: any };
+type Button = "UP" | "DOWN" | "LEFT" | "RIGHT" | "A" | "B" | "X" | "Y" | "START" | "SELECT" | "L" | "R" | "L2" | "R2" | "L1" | "R1" | "L3" | "R3";
+type RosterEntry = { peerId: string; playerNumber: number; username: string };
+type ChatMessage = { username: string; playerNumber?: number; text: string; timestamp: number };
+type RomEntry = { file: string; game: "nes" | "snes" | "ps1"; size: number; owner: string | null };
+
+function formatTimeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "ahora";
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d`;
+}
+
+const UPLOAD_INFO: Record<string, { exts: string[]; label: string; maxMB: number }> = {
+  nes: { exts: [".nes"], label: ".nes", maxMB: 8 },
+  snes: { exts: [".sfc", ".smc"], label: ".sfc · .smc", maxMB: 8 },
+  ps1: { exts: [".bin", ".iso", ".img", ".pbp", ".chd"], label: ".bin · .iso · .img · .pbp · .chd", maxMB: 2000 },
+  zip: { exts: [".zip"], label: ".zip (ROM comprimida)", maxMB: 2000 },
+};
+const EXTENSION_TO_GAME: Record<string, string> = {
+  ".nes": "nes", ".sfc": "snes", ".smc": "snes",
+  ".bin": "ps1", ".iso": "ps1", ".img": "ps1", ".pbp": "ps1", ".chd": "ps1",
+  ".zip": "zip",
+};
+
+const CONSOLES: { id: string; label: string; sub: string; active: boolean; hue: string; gradient: string }[] = [
+  { id: "nes", label: "NES", sub: "8-bit", active: true, hue: "nes", gradient: "linear-gradient(135deg, #a55eea, #0f172a)" },
+  { id: "snes", label: "SNES", sub: "16-bit", active: true, hue: "snes", gradient: "linear-gradient(135deg, #8b5cf6, #0f172a)" },
+  { id: "ps1", label: "PS1", sub: "32-bit", active: true, hue: "ps1", gradient: "linear-gradient(135deg, #00a8ff, #0f172a)" },
+  { id: "gba", label: "GBA", sub: "Próximamente", active: false, hue: "gba", gradient: "linear-gradient(135deg, #00e676, #0f172a)" },
+  { id: "genesis", label: "Genesis", sub: "Próximamente", active: false, hue: "genesis", gradient: "linear-gradient(135deg, #f0932b, #0f172a)" },
+  { id: "pce", label: "PC Engine", sub: "Próximamente", active: false, hue: "pce", gradient: "linear-gradient(135deg, #ff2a6d, #0f172a)" },
+  { id: "gb", label: "Game Boy", sub: "Próximamente", active: false, hue: "gb", gradient: "linear-gradient(135deg, #4ade80, #0f172a)" },
+  { id: "n64", label: "N64", sub: "Próximamente", active: false, hue: "n64", gradient: "linear-gradient(135deg, #ef4444, #0f172a)" },
+];
+
+// ── Signaling URL auto-detection ──────────────────────────────────────────────
+// VITE_SIGNALING_URL is a build-time constant (set in Dockerfile / .env).
+// When it's not set (production via Coolify), we derive the URL at runtime from
+// the page's own location: same hostname, same port, /signaling path.
+// This works regardless of what domain/port Coolify assigns.
+function resolveSignalingUrl(): { ws: string; http: string } {
+  const envUrl = (import.meta.env.VITE_SIGNALING_URL as string | undefined) ?? "";
+  // If explicitly set (non-empty), use it — this is for local dev (ws://localhost:8080/signaling)
+  if (envUrl.trim()) {
+    const http = envUrl.replace(/^ws/, "http").replace(/\/signaling\/?$/, "");
+    return { ws: envUrl, http };
+  }
+  // Empty or missing → auto-detect from the current page URL.
+  // Works in any deployment (Coolify, Vercel, Docker, etc.)
+  const isSecure = location.protocol === "https:";
+  const ws = `${isSecure ? "wss:" : "ws:"}//${location.host}/signaling`;
+  const http = `${isSecure ? "https:" : "http:"}//${location.host}`;
+  return { ws, http };
+}
+const { ws: signalingUrl, http: apiBase } = resolveSignalingUrl();
+const roomsUrl = `${apiBase}/rooms`;
+const romsUrl = `${apiBase}/roms`;
+const defaultRoom = import.meta.env.VITE_ROOM ?? "";
+type ActiveRoom = { room: string; peerCount: number; owner: string | null; visibility?: "public" | "private"; game?: string | null; file?: string | null };
+const buttons: Button[] = ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L", "R", "L2", "R2", "START", "SELECT"];
+// Each console's real controller only has some of these — NES has no X/Y/L/R/L2/R2, SNES has no L2/R2 —
+// so bindings and the Settings > Controls list are scoped per console instead of one list of everything.
+const CONSOLE_BUTTONS: Record<string, Button[]> = {
+  nes: ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "START", "SELECT"],
+  snes: ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L", "R", "START", "SELECT"],
+  ps1: ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "X", "Y", "L", "R", "L2", "R2", "START", "SELECT"],
+};
+const defaultKeyBindings: Record<Button, string> = {
+  UP: "ArrowUp", DOWN: "ArrowDown", LEFT: "ArrowLeft", RIGHT: "ArrowRight",
+  A: "z", B: "x", X: "a", Y: "s", L: "q", R: "w", L2: "1", R2: "2", L1: "q", R1: "w", L3: "e", R3: "r", START: "Enter", SELECT: "Shift",
+};
+
+// Bindings are stored per console ({ nes: {...}, snes: {...}, ps1: {...} }, each a partial override of the
+// defaults above) so rebinding a key for one console never touches another's — the room you're in decides
+// which map applies.
+function loadKeyBindingsByGame(): Record<string, Partial<Record<Button, string>>> {
+  try {
+    return JSON.parse(localStorage.getItem("rc_keybindings") ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+// Standard Gamepad API mapping (https://w3c.github.io/gamepad/#remapping): 0=A 1=B 2=X 3=Y 4=LB 5=RB
+// 6=LT 7=RT 8=Select 9=Start 12-15=D-pad.
+const defaultGamepadBindings: Record<Button, number> = {
+  UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15, A: 0, B: 1, X: 2, Y: 3, L: 4, R: 5, L2: 6, R2: 7, L1: 4, R1: 5, L3: 8, R3: 9, START: 9, SELECT: 8,
+};
+
+function loadGamepadBindingsByGame(): Record<string, Partial<Record<Button, number>>> {
+  try {
+    return JSON.parse(localStorage.getItem("rc_gamepad_bindings") ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+// Unlike the passive "remembered zoom" that used to get stuck across sessions, a locked position is an
+// explicit save the user opted into (via the pin button) — so, unlike scale, it's fine for this one to
+// persist and restore automatically.
+type LockedCanvas = { locked: true; x: number; y: number; zoom: number };
+function loadLockedCanvas(): LockedCanvas | null {
+  try {
+    const stored = JSON.parse(localStorage.getItem("rc_canvas_lock") ?? "null");
+    return stored?.locked ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+const statusKeys: Record<string, string> = {
+  Disconnected: "statusDisconnected",
+  Connecting: "statusConnecting",
+  "Connected to signaling": "statusSignalingConnected",
+  "WebRTC connected": "statusWebrtcConnected",
+  "WebRTC failed": "statusWebrtcFailed",
+  "Answer sent": "statusAnswerSent",
+  "Signaling error": "statusSignalingError",
+};
+const mediaKeys: Record<string, string> = {
+  "Waiting for game server": "waitingForGameServer",
+  "Receiving media": "receivingMedia",
+  "Game server disconnected": "gameServerDisconnected",
+};
+
+function IconLock() {
+  return <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </svg>;
+}
+function IconGlobe() {
+  return <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18Z" />
+  </svg>;
+}
+function IconCrown() {
+  return <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+    <path d="M4 18h16l1-9-5 3-4-6-4 6-5-3 1 9Z" />
+  </svg>;
+}
+function IconSignal() {
+  return <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 18h.01" />
+    <path d="M18 12h.01" />
+    <path d="M6 12h.01" />
+    <path d="M15.09 7.18a3 3 0 0 0-5.83 1.26 3 3 0 1 0 5.83-1.26z" />
+  </svg>;
+}
+function IconUser() {
+  return <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 21V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v16" />
+    <circle cx="9" cy="9" r="2" />
+    <path d="M15 15.5A2 2 0 1 0 15 9a2 2 0 0 0 0 6.5Z" />
+  </svg>;
+}
+function IconCopy() {
+  return <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+    <path d="M6 6L6 6c-1.1 0-2 .9-2 2v8a2 2 0 0 0 2 2h8c1.1 0 2-.9 2-2v-4" />
+    <path d="M13 2h6a2 2 0 0 1 2 2v6M13 2v6h6M13 2l-6 6" />
+  </svg>;
+}
+function IconEye({ open }: { open: boolean }) {
+  return open ? (
+    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 1l22 22M14 14a3 3 0 1 1-4-4M8.7 4.2A10.45 10.45 0 0 1 12 3c7 0 11 9 11 9-.6.9-1.4 1.8-2.3 2.5M3 3l2 2" />
+    </svg>
+  );
+}
+function IconWifi() {
+  return <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 13l6 6 6-6" />
+    <path d="M12 4c3.87 3.87 5.34 9.17 4.06 14H7.94c-1.28-4.83.3-10.13 4.06-14Z" />
+  </svg>;
+}
+function IconProfile() {
+  return <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 3.5-6 8-6s8 2 8 6" />
+  </svg>;
+}
+function IconClose() {
+  return <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="M6 6l12 12M18 6L6 18" />
+  </svg>;
+}
+function IconFullscreen({ active }: { active: boolean }) {
+  return active ? (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 4H6a2 2 0 0 0-2 2v3M15 4h3a2 2 0 0 1 2 2v3M9 20H6a2 2 0 0 1-2-2v-3M15 20h3a2 2 0 0 0 2-2v-3" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 9V6a2 2 0 0 1 2-2h3M20 9V6a2 2 0 0 0-2-2h-3M4 15v3a2 2 0 0 0 2 2h3M20 15v3a2 2 0 0 1-2 2h-3" />
+    </svg>
+  );
+}
+function IconVolume({ muted }: { muted: boolean }) {
+  return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 9v6h4l5 4V5L8 9H4Z" />
+    {muted ? <path d="M16 9l5 6M21 9l-5 6" /> : <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a9 9 0 0 1 0 12" />}
+  </svg>;
+}
+function IconMove() {
+  return <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2v20M2 12h20M5 9l-3 3 3 3M19 9l3 3-3 3M9 5l3-3 3 3M9 19l3 3 3-3" />
+  </svg>;
+}
+function IconPin({ locked }: { locked: boolean }) {
+  return locked ? (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 7.5-2" />
+    </svg>
+  );
+}
+function IconRefresh() {
+  return <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 4v5h5M20 20v-5h-5" /><path d="M5.5 9A7 7 0 0 1 19 8M18.5 15a7 7 0 0 1-13.5 1" />
+  </svg>;
+}
+
+function IconLogout() {
+  return <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" />
+  </svg>;
+}
+function IconGrid() {
+  return <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" />
+  </svg>;
+}
+function IconRoomsNav() {
+  return <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 11l9-7 9 7" /><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9" />
+  </svg>;
+}
+function IconFriends() {
+  return <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>;
+}
+
+function IconTv({ active }: { active: boolean }) {
+  return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="7" width="20" height="13" rx="2" /><path d="M17 2l-5 5-5-5" />
+    {active && <path d="M6 11h12M6 14h12M6 17h12" strokeWidth="1.2" opacity="0.6" />}
+  </svg>;
+}
+
+function IconSoundFx({ enabled }: { enabled: boolean }) {
+  return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 5L6 9H2v6h4l5 4V5z" />
+    {enabled ? <path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14" /> : <line x1="23" y1="9" x2="17" y2="15" />}
+  </svg>;
+}
+
+function IconNesConsole() {
+  return <svg viewBox="0 0 120 80" width="80" height="53" fill="none">
+    <rect x="15" y="20" width="90" height="48" rx="4" fill="#e2e8f0"/>
+    <rect x="25" y="20" width="70" height="24" fill="#334155"/>
+    <rect x="30" y="26" width="60" height="12" fill="#1e293b"/>
+    <rect x="25" y="48" width="14" height="12" fill="#94a3b8"/>
+    <rect x="43" y="48" width="14" height="12" fill="#94a3b8"/>
+    <circle cx="85" cy="54" r="3" fill="#ef4444"/>
+    <circle cx="95" cy="54" r="3" fill="#ef4444"/>
+  </svg>;
+}
+function IconSnesConsole() {
+  return <svg viewBox="0 0 120 80" width="80" height="53" fill="none">
+    <rect x="15" y="18" width="90" height="50" rx="6" fill="#cbd5e1"/>
+    <rect x="25" y="18" width="70" height="16" fill="#8b5cf6"/>
+    <rect x="35" y="22" width="50" height="8" fill="#4c1d95"/>
+    <rect x="35" y="40" width="50" height="20" rx="3" fill="#94a3b8"/>
+    <rect x="42" y="45" width="14" height="10" fill="#8b5cf6"/>
+    <rect x="64" y="45" width="14" height="10" fill="#8b5cf6"/>
+  </svg>;
+}
+function IconPs1Console() {
+  return <svg viewBox="0 0 120 80" width="80" height="53" fill="none">
+    <rect x="15" y="16" width="90" height="52" rx="8" fill="#cbd5e1"/>
+    <circle cx="60" cy="42" r="20" fill="#94a3b8"/>
+    <circle cx="60" cy="42" r="14" fill="#64748b"/>
+    <circle cx="30" cy="30" r="7" fill="#94a3b8"/>
+    <circle cx="90" cy="30" r="7" fill="#94a3b8"/>
+    <rect x="25" y="54" width="20" height="6" rx="2" fill="#64748b"/>
+    <rect x="75" y="54" width="20" height="6" rx="2" fill="#64748b"/>
+  </svg>;
+}
+function IconN64Console() {
+  return <svg viewBox="0 0 120 80" width="80" height="53" fill="none">
+    <path d="M15 28 C15 20, 105 20, 105 28 L100 64 C100 68, 20 68, 20 64 Z" fill="#1e293b"/>
+    <rect x="38" y="22" width="44" height="14" rx="3" fill="#334155"/>
+    <rect x="44" y="25" width="32" height="8" rx="2" fill="#0f172a"/>
+    <circle cx="30" cy="52" r="6" fill="#dc2626"/>
+    <circle cx="90" cy="52" r="6" fill="#2563eb"/>
+    <circle cx="78" cy="56" r="4" fill="#ca8a04"/>
+    <circle cx="84" cy="46" r="4" fill="#ca8a04"/>
+  </svg>;
+}
+function IconGbaConsole() {
+  return <svg viewBox="0 0 120 80" width="80" height="53" fill="none">
+    <rect x="10" y="20" width="100" height="46" rx="14" fill="#e056fd"/>
+    <rect x="35" y="24" width="50" height="34" rx="4" fill="#0f172a"/>
+    <rect x="39" y="27" width="42" height="28" rx="2" fill="#84cc16"/>
+    <circle cx="22" cy="43" r="8" fill="#a855f7"/>
+    <circle cx="98" cy="38" r="4" fill="#38bdf8"/>
+    <circle cx="104" cy="46" r="4" fill="#38bdf8"/>
+  </svg>;
+}
+function IconGenesisConsole() {
+  return <svg viewBox="0 0 120 80" width="80" height="53" fill="none">
+    <rect x="15" y="18" width="90" height="50" rx="6" fill="#1e293b"/>
+    <circle cx="60" cy="42" r="18" fill="#0f172a"/>
+    <circle cx="60" cy="42" r="14" stroke="#eab308" strokeWidth="2" fill="none"/>
+    <rect x="30" y="22" width="60" height="8" rx="2" fill="#334155"/>
+    <rect x="25" y="48" width="16" height="6" fill="#64748b"/>
+  </svg>;
+}
+
+const JAM_CONSOLES = [
+  { id: "snes", name: "SUPER NES", bg: "#8b5cf6", active: true, icon: IconSnesConsole },
+  { id: "ps1", name: "PS1", bg: "#00a8ff", active: true, icon: IconPs1Console },
+  { id: "n64", name: "NINTENDO 64", bg: "#ff2a6d", active: false, icon: IconN64Console },
+  { id: "gba", name: "GBA", bg: "#e056fd", active: false, icon: IconGbaConsole },
+  { id: "genesis", name: "GENESIS", bg: "#f0932b", active: false, icon: IconGenesisConsole },
+  { id: "nes", name: "NES", bg: "#a55eea", active: true, icon: IconNesConsole },
+];
+
+const FEATURED_GAMES = [
+  {
+    id: "kof98",
+    title: "The King of Fighters '98",
+    desc: "You can have your 99 hits. My KO just needs 1...",
+    bg: "linear-gradient(135deg, #1e3a8a, #0f172a)",
+    tags: ["#fighting", "#arcade", "#versus"],
+    maxPlayers: "2P",
+    game: "ps1",
+    players: 1,
+  },
+  {
+    id: "mslugx",
+    title: "Metal Slug X",
+    desc: "If bullets and bombs don't work, bring in the cannons!",
+    bg: "linear-gradient(135deg, #78350f, #1e293b)",
+    tags: ["#arcade", "#run and gun", "#shoot'em up"],
+    maxPlayers: "2P",
+    game: "ps1",
+    players: 0,
+  },
+  {
+    id: "bomber",
+    title: "Arsène Bomber",
+    desc: "Bomb or be bombed? That is the question.",
+    bg: "linear-gradient(135deg, #0369a1, #0f172a)",
+    tags: ["#action", "#arcade"],
+    maxPlayers: "4P",
+    game: "snes",
+    players: 0,
+  },
+];
+
+const HASHTAGS = ["#action", "#arcade", "#sports", "#platformer", "#indie", "#shooter", "#puzzle", "#shoot'em up", "#fighting"];
+const ROOM_FILTERS = [
+  { key: "all", icon: "🎮", labelKey: "filterAll" as const },
+  { key: "friends", icon: "👥", labelKey: "filterFriends" as const },
+  { key: "public", icon: "🌍", labelKey: "filterPublic" as const },
+  { key: "private", icon: "🔒", labelKey: "filterPrivate" as const },
+];
+
+function TouchButton({ label, className, onPress, style }: { label: string; className: string; onPress: (pressed: boolean) => void; style?: React.CSSProperties }) {
+  const [held, setHeld] = useState(false);
+  const pressedRef = useRef(false);
+  const press = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    if (pressedRef.current) return; // ignore a stray second pointerdown for the same touch
+    pressedRef.current = true;
+    setHeld(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    if (navigator.vibrate) navigator.vibrate(8);
+    onPress(true);
+  };
+  const release = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    if (!pressedRef.current) return;
+    pressedRef.current = false;
+    setHeld(false);
+    onPress(false);
+  };
+  return (
+    <button
+      className={held ? `${className} pressed` : className}
+      style={style}
+      onPointerDown={press}
+      onPointerUp={release}
+      onPointerLeave={release}
+      onPointerCancel={release}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {label}
+    </button>
+  );
+}
+
+function VirtualJoystick({ sendInput, size = 130 }: { sendInput: (button: Button, pressed: boolean) => void; size?: number }) {
+  const baseRef = useRef<HTMLDivElement>(null);
+  const [thumbPos, setThumbPos] = useState({ x: 0, y: 0 });
+  const dragging = useRef(false);
+  const offset = useRef({ x: 0, y: 0 });
+  const heldDir = useRef<Button | null>(null);
+  const radius = size / 2;
+  const thumbR = size * 0.22;
+  const deadzone = size * 0.12;
+
+  function dirFromDelta(dx: number, dy: number): Button | null {
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < deadzone) return null;
+    const angle = Math.atan2(dy, dx);
+    if (angle >= -Math.PI * 0.75 && angle < -Math.PI * 0.25) return "UP";
+    if (angle >= -Math.PI * 0.25 && angle < Math.PI * 0.25) return "RIGHT";
+    if (angle >= Math.PI * 0.25 && angle < Math.PI * 0.75) return "DOWN";
+    return "LEFT";
+  }
+
+  function clampThumb(dx: number, dy: number) {
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const maxR = radius - thumbR - 2;
+    if (dist <= maxR) return { x: dx, y: dy };
+    return { x: (dx / dist) * maxR, y: (dy / dist) * maxR };
+  }
+
+  function handleDown(e: React.PointerEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = baseRef.current;
+    if (!el) return;
+    el.setPointerCapture(e.pointerId);
+    dragging.current = true;
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    offset.current = { x: e.clientX - cx, y: e.clientY - cy };
+    const clamped = clampThumb(offset.current.x, offset.current.y);
+    setThumbPos(clamped);
+    const dir = dirFromDelta(offset.current.x, offset.current.y);
+    if (dir && dir !== heldDir.current) {
+      if (heldDir.current) sendInput(heldDir.current, false);
+      heldDir.current = dir;
+      sendInput(dir, true);
+      if (navigator.vibrate) navigator.vibrate(8);
+    }
+  }
+
+  function handleMove(e: React.PointerEvent) {
+    if (!dragging.current) return;
+    e.preventDefault();
+    const el = baseRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dx = e.clientX - cx;
+    const dy = e.clientY - cy;
+    const clamped = clampThumb(dx, dy);
+    setThumbPos(clamped);
+    const dir = dirFromDelta(dx, dy);
+    if (dir !== heldDir.current) {
+      if (heldDir.current) sendInput(heldDir.current, false);
+      if (dir) sendInput(dir, true);
+      heldDir.current = dir;
+      if (dir && navigator.vibrate) navigator.vibrate(8);
+    }
+  }
+
+  function handleUp(e: React.PointerEvent) {
+    e.preventDefault();
+    dragging.current = false;
+    setThumbPos({ x: 0, y: 0 });
+    if (heldDir.current) {
+      sendInput(heldDir.current, false);
+      heldDir.current = null;
+    }
+  }
+
+  return (
+    <div style={{ position: "absolute", left: 12, top: 12 }}>
+      <div
+        ref={baseRef}
+        className="virtual-joystick"
+        style={{ position: "absolute", width: size, height: size }}
+        onPointerDown={handleDown}
+        onPointerMove={handleMove}
+        onPointerUp={handleUp}
+        onPointerCancel={handleUp}
+        onPointerLeave={handleUp}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        <div className="joystick-base" style={{ width: size, height: size, borderRadius: "50%" }} />
+        <div
+          className="joystick-thumb"
+          style={{
+            width: thumbR * 2, height: thumbR * 2, borderRadius: "50%",
+            transform: `translate(${thumbPos.x - thumbR}px, ${thumbPos.y - thumbR}px)`,
+          }}
+        />
+      </div>
+      <div style={{ position: "absolute", top: size + 6, left: 0, display: "flex", gap: 6 }}>
+        <TouchButton label="L3" className="touch-btn touch-pill btn-l3" style={{ position: "relative", width: 56, height: 30, fontSize: 10 }} onPress={(p) => sendInput("L3", p)} />
+        <TouchButton label="R3" className="touch-btn touch-pill btn-r3" style={{ position: "relative", width: 56, height: 30, fontSize: 10 }} onPress={(p) => sendInput("R3", p)} />
+      </div>
+    </div>
+  );
+}
+
+type ControlPreset = { id: string; label: string; buttons: { id: Button; x: number; y: number; size: number; shape: "circle" | "rect" | "dpad" | "pill" }[] };
+const CONTROL_PRESETS: Record<string, ControlPreset> = {
+  nes: {
+    id: "nes", label: "NES",
+    buttons: [
+      { id: "UP", x: 52, y: 0, size: 52, shape: "dpad" },
+      { id: "DOWN", x: 52, y: 104, size: 52, shape: "dpad" },
+      { id: "LEFT", x: 0, y: 52, size: 52, shape: "dpad" },
+      { id: "RIGHT", x: 104, y: 52, size: 52, shape: "dpad" },
+      { id: "A", x: 220, y: 38, size: 62, shape: "circle" },
+      { id: "B", x: 148, y: 0, size: 62, shape: "circle" },
+      { id: "SELECT", x: 80, y: 170, size: 56, shape: "pill" },
+      { id: "START", x: 148, y: 170, size: 56, shape: "pill" },
+    ],
+  },
+  snes: {
+    id: "snes", label: "SNES",
+    buttons: [
+      { id: "UP", x: 52, y: 0, size: 52, shape: "dpad" },
+      { id: "DOWN", x: 52, y: 104, size: 52, shape: "dpad" },
+      { id: "LEFT", x: 0, y: 52, size: 52, shape: "dpad" },
+      { id: "RIGHT", x: 104, y: 52, size: 52, shape: "dpad" },
+      { id: "Y", x: 148, y: 0, size: 52, shape: "circle" },
+      { id: "X", x: 220, y: 38, size: 52, shape: "circle" },
+      { id: "B", x: 220, y: 110, size: 52, shape: "circle" },
+      { id: "A", x: 292, y: 74, size: 52, shape: "circle" },
+      { id: "SELECT", x: 80, y: 176, size: 52, shape: "pill" },
+      { id: "START", x: 148, y: 176, size: 52, shape: "pill" },
+    ],
+  },
+  ps1: {
+    id: "ps1", label: "PS1",
+    buttons: [
+      { id: "UP", x: 52, y: 0, size: 52, shape: "dpad" },
+      { id: "DOWN", x: 52, y: 104, size: 52, shape: "dpad" },
+      { id: "LEFT", x: 0, y: 52, size: 52, shape: "dpad" },
+      { id: "RIGHT", x: 104, y: 52, size: 52, shape: "dpad" },
+      { id: "Y", x: 148, y: 0, size: 50, shape: "circle" },
+      { id: "X", x: 220, y: 38, size: 50, shape: "circle" },
+      { id: "B", x: 220, y: 110, size: 50, shape: "circle" },
+      { id: "A", x: 292, y: 74, size: 50, shape: "circle" },
+      { id: "SELECT", x: 80, y: 176, size: 48, shape: "pill" },
+      { id: "START", x: 148, y: 176, size: 48, shape: "pill" },
+      { id: "L", x: 0, y: -10, size: 44, shape: "rect" },
+      { id: "R", x: 298, y: -10, size: 44, shape: "rect" },
+      { id: "L2", x: 0, y: -56, size: 44, shape: "rect" },
+      { id: "R2", x: 298, y: -56, size: 44, shape: "rect" },
+    ],
+  },
+};
+
+const PS1_SYMBOLS: Record<string, string> = { A: "✕", B: "○", Y: "△", X: "□", L: "L1", R: "R1" };
+const SNES_LABELS: Record<string, string> = { A: "A", B: "B", X: "X", Y: "Y" };
+
+function getButtonLabel(btn: Button, consoleId: string): string {
+  if (consoleId === "ps1") return PS1_SYMBOLS[btn] ?? btn;
+  if (consoleId === "snes") return SNES_LABELS[btn] ?? btn;
+  return btn;
+}
+
+function TouchControls({ sendInput, layout, size, consoleId = "ps1", customPositions = {}, ps1ControlMode = "dpad" }: { sendInput: (button: Button, pressed: boolean) => void; layout: "standard" | "swapped"; size: "compact" | "large"; consoleId?: string; customPositions?: Record<string, { x: number; y: number }>; ps1ControlMode?: "dpad" | "joystick" }) {
+  const preset = CONTROL_PRESETS[consoleId] ?? CONTROL_PRESETS.ps1;
+  const scale = size === "large" ? 1.15 : 1;
+  const useJoystick = consoleId === "ps1" && ps1ControlMode === "joystick";
+  const dpadIds = new Set(["UP", "DOWN", "LEFT", "RIGHT"]);
+  return (
+    <div className={`touch-controls layout-${layout} size-${size} console-${consoleId}`}>
+      {useJoystick && <VirtualJoystick sendInput={sendInput} size={154} />}
+      {preset.buttons.map((btn) => {
+        if (useJoystick && dpadIds.has(btn.id)) return null;
+        const custom = customPositions[btn.id];
+        return (
+          <TouchButton
+            key={btn.id}
+            label={getButtonLabel(btn.id, consoleId)}
+            className={`touch-btn touch-${btn.shape} btn-${btn.id.toLowerCase()}`}
+            style={{
+              position: "absolute",
+              left: custom ? custom.x : btn.x * scale,
+              top: custom ? custom.y : btn.y * scale,
+              width: btn.size * scale,
+              height: btn.size * scale,
+            }}
+            onPress={(p) => sendInput(btn.id, p)}
+          />
+        );
+      })}
+      {preset.buttons.some((b) => b.id === "L") && consoleId !== "ps1" && (
+        <div className="touch-shoulders">
+          <TouchButton label="L" className="touch-shoulder-btn" onPress={(p) => sendInput("L", p)} />
+          <TouchButton label="R" className="touch-shoulder-btn" onPress={(p) => sendInput("R", p)} />
+        </div>
+      )}
+      {preset.buttons.some((b) => b.id === "L2") && consoleId !== "ps1" && (
+        <div className="touch-shoulders-2">
+          <TouchButton label="L2" className="touch-shoulder-btn" onPress={(p) => sendInput("L2", p)} />
+          <TouchButton label="R2" className="touch-shoulder-btn" onPress={(p) => sendInput("R2", p)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ControlEditor({ consoleId, customPositions, onPositionsChange, onClose, t, ps1ControlMode = "dpad" }: {
+  consoleId: string;
+  customPositions: Record<string, { x: number; y: number }>;
+  onPositionsChange: (positions: Record<string, { x: number; y: number }>) => void;
+  onClose: () => void;
+  t: (key: Parameters<typeof translate>[1]) => string;
+  ps1ControlMode?: "dpad" | "joystick";
+}) {
+  const preset = CONTROL_PRESETS[consoleId] ?? CONTROL_PRESETS.ps1;
+  const useJoystick = consoleId === "ps1" && ps1ControlMode === "joystick";
+  const dpadIds = new Set(["UP", "DOWN", "LEFT", "RIGHT"]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>(() => {
+    const initial: Record<string, { x: number; y: number }> = {};
+    preset.buttons.forEach((btn) => {
+      const custom = customPositions[btn.id];
+      initial[btn.id] = custom ?? { x: btn.x, y: btn.y };
+    });
+    return initial;
+  });
+  const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const dragStartPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const DPAD = ["UP", "DOWN", "LEFT", "RIGHT"] as const;
+  const isDpad = (id: string) => DPAD.includes(id as any);
+
+  const handlePointerDown = (id: string, e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const btn = preset.buttons.find((b) => b.id === id);
+    if (!btn) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    dragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const pos = positions[id];
+    dragStartPos.current = { x: pos.x, y: pos.y };
+    setDragging(id);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!dragging || !containerRef.current) return;
+    const container = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - container.left - dragOffset.current.x;
+    const y = e.clientY - container.top - dragOffset.current.y;
+    if (isDpad(dragging)) {
+      const dx = x - dragStartPos.current.x;
+      const dy = y - dragStartPos.current.y;
+      setPositions((prev) => {
+        const next = { ...prev };
+        DPAD.forEach((id) => {
+          const orig = preset.buttons.find((b) => b.id === id);
+          if (orig) {
+            const base = customPositions[id] ?? { x: orig.x, y: orig.y };
+            next[id] = { x: Math.max(0, base.x + dx), y: Math.max(0, base.y + dy) };
+          }
+        });
+        return next;
+      });
+    } else {
+      setPositions((prev) => ({ ...prev, [dragging]: { x: Math.max(0, x), y: Math.max(0, y) } }));
+    }
+  };
+
+  const handlePointerUp = () => { setDragging(null); };
+
+  const handleSave = () => { onPositionsChange(positions); onClose(); };
+
+  return (
+    <div className="control-editor-overlay" onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}>
+      <div className="control-editor-toolbar">
+        <span style={{ fontSize: 14, fontWeight: 600 }}>{t("dragToReposition")}</span>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="control-editor-cancel" onClick={onClose}>{t("cancel")}</button>
+          <button className="control-editor-save" onClick={handleSave}>{t("save")}</button>
+        </div>
+      </div>
+      <div className="control-editor-area" ref={containerRef}>
+        {isDpad(dragging ?? "") && (
+          <div className="dpad-group-indicator" style={{ position: "absolute", left: positions["LEFT"]?.x ?? 0, top: positions["UP"]?.y ?? 0, width: (positions["RIGHT"]?.x ?? 0) - (positions["LEFT"]?.x ?? 0) + preset.buttons.find(b => b.id === "RIGHT")!.size, height: (positions["DOWN"]?.y ?? 0) - (positions["UP"]?.y ?? 0) + preset.buttons.find(b => b.id === "DOWN")!.size, borderRadius: 12 }} />
+        )}
+        {preset.buttons.filter((btn) => !(useJoystick && dpadIds.has(btn.id))).map((btn) => {
+          const pos = positions[btn.id];
+          const isDraggingThis = dragging === btn.id;
+          const isDpadGroup = isDpad(btn.id) && isDpad(dragging ?? "");
+          return (
+            <div
+              key={btn.id}
+              className={`control-editor-ghost ${btn.shape === "circle" ? "ghost-circle" : "ghost-pill"} ${isDraggingThis ? "dragging" : ""} ${isDpadGroup ? "dpad-group" : ""}`}
+              style={{ position: "absolute", left: pos.x, top: pos.y, width: btn.size, height: btn.size }}
+              onPointerDown={(e) => handlePointerDown(btn.id, e)}
+            >
+              <span>{getButtonLabel(btn.id, consoleId)}</span>
+            </div>
+          );
+        })}
+        <div className="control-editor-hint">{t("touchDragHint")}</div>
+      </div>
+    </div>
+  );
+}
+
+function LangToggle({ lang, setLang }: { lang: Lang; setLang: (lang: Lang) => void }) {
+  return (
+    <div className="lang-toggle" role="group" aria-label="Language">
+      <button className={lang === "es" ? "lang-option active" : "lang-option"} onClick={() => setLang("es")}>ES</button>
+      <button className={lang === "en" ? "lang-option active" : "lang-option"} onClick={() => setLang("en")}>EN</button>
+    </div>
+  );
+}
+
+export default function App() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [lang, setLang] = useState<Lang>(loadLang);
+  const [theme, setTheme] = useState<"dark" | "light">(() => (localStorage.getItem("rc_theme") === "light" ? "light" : "dark") as "dark" | "light");
+  const t = (key: Parameters<typeof translate>[1]) => translate(lang, key);
+  useEffect(() => { localStorage.setItem("rc_lang", lang); document.documentElement.lang = lang; }, [lang]);
+  useEffect(() => { localStorage.setItem("rc_theme", theme); document.body.classList.toggle("light", theme === "light"); }, [theme]);
+  const socketRef = useRef<WebSocket | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const inputRef = useRef<RTCDataChannel | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem("rc_token"));
+  const [authUsername, setAuthUsername] = useState<string | null>(() => localStorage.getItem("rc_username"));
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authForm, setAuthForm] = useState({ username: "", password: "", email: "" });
+  const [authError, setAuthError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [status, setStatus] = useState("Disconnected");
+  const [mediaState, setMediaState] = useState("Waiting for game server");
+  const [inputState, setInputState] = useState("Not connected");
+  const [room, setRoom] = useState(defaultRoom || "local");
+  const [roomTouched, setRoomTouched] = useState(Boolean(defaultRoom));
+  const [roomOwner, setRoomOwner] = useState<string | null>(null);
+  const [closingRoom, setClosingRoom] = useState(false);
+  const [activeRooms, setActiveRooms] = useState<ActiveRoom[]>([]);
+  const [lobbyView, setLobbyView] = useState<"rooms" | "catalog" | "profile" | "social">("rooms");
+  const [roms, setRoms] = useState<RomEntry[]>([]);
+  const [selectedRom, setSelectedRom] = useState<string | null>(null);
+  const [catalogConsole, setCatalogConsole] = useState<string>("all");
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [roomSearch, setRoomSearch] = useState("");
+  const [roomFilter, setRoomFilter] = useState<string>("all");
+  const [gameModalRom, setGameModalRom] = useState<RomEntry | null>(null);
+  const [ps1BiosReady, setPs1BiosReady] = useState<boolean | null>(null);
+  const [biosUploading, setBiosUploading] = useState(false);
+  const [biosError, setBiosError] = useState("");
+  const [newRoomVisibility, setNewRoomVisibility] = useState<"public" | "private">("public");
+  const [newRoomBandwidth, setNewRoomBandwidth] = useState<"high" | "medium" | "low">("medium");
+  const [diagRunning, setDiagRunning] = useState(false);
+  const [diagResult, setDiagResult] = useState<{ rtt: number; jitter: number; downKbps: number; rating: "excellent" | "good" | "fair" | "poor" } | null>(null);
+  const [shareDialogRoom, setShareDialogRoom] = useState<string | null>(null);
+  const [shareLinkCopied, setShareLinkCopied] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadDone, setUploadDone] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [playerNumber, setPlayerNumber] = useState<number | null>(null);
+  const [currentGame, setCurrentGame] = useState<string | null>(null);
+  const [keyBindingsByGame, setKeyBindingsByGame] = useState<Record<string, Partial<Record<Button, string>>>>(loadKeyBindingsByGame);
+  const [rebinding, setRebinding] = useState<Button | null>(null);
+  const [gamepadBindingsByGame, setGamepadBindingsByGame] = useState<Record<string, Partial<Record<Button, number>>>>(loadGamepadBindingsByGame);
+  const [rebindingGamepad, setRebindingGamepad] = useState<Button | null>(null);
+  const [gamepadConnected, setGamepadConnected] = useState(false);
+  const gamepadHeldRef = useRef<Set<Button>>(new Set());
+  const rebindingGamepadRef = useRef<Button | null>(null);
+  const activeConsole = currentGame ?? "ps1";
+  const activeConsoleButtons = CONSOLE_BUTTONS[activeConsole] ?? buttons;
+  const keyBindings = useMemo<Record<Button, string>>(
+    () => ({ ...defaultKeyBindings, ...(keyBindingsByGame[activeConsole] ?? {}) }),
+    [keyBindingsByGame, activeConsole],
+  );
+  const gamepadBindings = useMemo<Record<Button, number>>(
+    () => ({ ...defaultGamepadBindings, ...(gamepadBindingsByGame[activeConsole] ?? {}) }),
+    [gamepadBindingsByGame, activeConsole],
+  );
+  const gamepadBindingsRef = useRef(gamepadBindings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"display" | "audio" | "controls">("display");
+  const [crtEffect, setCrtEffect] = useState<boolean>(() => localStorage.getItem("rc_crt") === "1");
+  const [soundFxEnabled, setSoundFxEnabledState] = useState<boolean>(isSoundEnabled);
+  const [roomCopied, setRoomCopied] = useState(false);
+  const [pinnedRoms, setPinnedRoms] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("rc_pinned_roms") ?? "[]"); } catch { return []; }
+  });
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadCustomName, setUploadCustomName] = useState("");
+  const togglePinRom = (file: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    playClickSound();
+    setPinnedRoms((prev) => {
+      const next = prev.includes(file) ? prev.filter((f) => f !== file) : [...prev, file];
+      try { localStorage.setItem("rc_pinned_roms", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+  useEffect(() => { localStorage.setItem("rc_crt", crtEffect ? "1" : "0"); }, [crtEffect]);
+  const [scale, setScale] = useState<string>("fit");
+  const [touchLayout, setTouchLayout] = useState<"standard" | "swapped">(() => (localStorage.getItem("rc_touch_layout") === "swapped" ? "swapped" : "standard"));
+  const [touchSize, setTouchSize] = useState<"compact" | "large">(() => (localStorage.getItem("rc_touch_size") === "large" ? "large" : "compact"));
+  const [ps1ControlMode, setPs1ControlMode] = useState<"dpad" | "joystick">(() => (localStorage.getItem("rc_ps1_ctrl") === "joystick" ? "joystick" : "dpad"));
+  const [editingControls, setEditingControls] = useState(false);
+  const [customPositions, setCustomPositions] = useState<Record<string, { x: number; y: number }>>(() => {
+    try { return JSON.parse(localStorage.getItem("rc_custom_ctrl") ?? "{}"); } catch { return {}; }
+  });
+  const [isTouchDevice] = useState(() => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const stageWrapRef = useRef<HTMLDivElement>(null);
+  const [volume, setVolume] = useState<number>(() => Number(localStorage.getItem("rc_volume") ?? "100"));
+  const [muted, setMuted] = useState<boolean>(() => localStorage.getItem("rc_muted") === "1");
+  const volumeRef = useRef(volume);
+  const mutedRef = useRef(muted);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+  const [intrinsicSize, setIntrinsicSize] = useState<{ w: number; h: number } | null>(null);
+  const [canvasOffset, setCanvasOffset] = useState(() => { const l = loadLockedCanvas(); return l ? { x: l.x, y: l.y } : { x: 0, y: 0 }; });
+  const [canvasZoom, setCanvasZoom] = useState(() => loadLockedCanvas()?.zoom ?? 1);
+  const [canvasLocked, setCanvasLocked] = useState(() => loadLockedCanvas() !== null);
+  const [draggingCanvas, setDraggingCanvas] = useState(false);
+  const [canvasHintVisible, setCanvasHintVisible] = useState(false);
+  const [canvasToast, setCanvasToast] = useState<string | null>(null);
+  const canvasDragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
+  const [roster, setRoster] = useState<RosterEntry[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const [rttMs, setRttMs] = useState<number | null>(null);
+  const [latencyPopoverOpen, setLatencyPopoverOpen] = useState(false);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
+  const [profileEmail, setProfileEmail] = useState<string | null>(null);
+  const [emailPromptOpen, setEmailPromptOpen] = useState(false);
+  const [emailInput, setEmailInput] = useState("");
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailError, setEmailError] = useState("");
+  const [friends, setFriends] = useState<{ friends: string[]; incoming: string[]; outgoing: string[] }>({ friends: [], incoming: [], outgoing: [] });
+  // Was declared before `friends`/`roomFilter`/`roomSearch` further up this function — those are all
+  // `const`s, so referencing them before their own declaration line throws a TDZ ReferenceError. Since
+  // .filter() only invokes its callback when the array is non-empty, this stayed invisible until a room
+  // was actually live: the instant activeRooms had an entry, every connected client's render crashed,
+  // which is why the whole app appeared to go down for everyone the moment anyone was in a room.
+  const friendRooms = activeRooms.filter((r) => r.owner != null && friends.friends.includes(r.owner) && r.visibility !== "private");
+  const filteredRooms = activeRooms.filter((r) => {
+    if (roomFilter === "friends") return r.owner != null && friends.friends.includes(r.owner);
+    if (roomFilter === "public") return r.visibility !== "private";
+    if (roomFilter === "private") return r.visibility === "private";
+    return true;
+  }).filter((r) => {
+    if (!roomSearch.trim()) return true;
+    const q = roomSearch.toLowerCase();
+    return r.room.toLowerCase().includes(q) || r.owner?.toLowerCase().includes(q) || r.game?.toLowerCase().includes(q);
+  });
+  const [addFriendInput, setAddFriendInput] = useState("");
+  const [friendError, setFriendError] = useState("");
+  const [inbox, setInbox] = useState<Array<{ peer: string; lastMessage: string; lastTime: string; unread: number }>>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [dmPeer, setDmPeer] = useState<string | null>(null);
+  const [dmMessages, setDmMessages] = useState<Array<{ id: number; sender: string; body: string; created_at: string }>>([]);
+  const [dmInput, setDmInput] = useState("");
+  const [dmLoading, setDmLoading] = useState(false);
+  const [socialTab, setSocialTab] = useState<"inbox" | "friends" | "requests">("inbox");
+  const dmEndRef = useRef<HTMLDivElement>(null);
+  const statsIntervalRef = useRef<number | null>(null);
+  const myPeerIdRef = useRef<string | null>(null);
+  const hostPeerIdRef = useRef<string | null>(null);
+  const playerNumberRef = useRef<number>(1);
+  const heldButtonsRef = useRef<Set<Button>>(new Set());
+  const bitmaskRef = useRef<number>(0);
+  const sendBufRef = useRef<Uint8Array>((() => { const b = new Uint8Array(3); b[0] = 0xFF; return b; })());
+  const shouldReconnectRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimeoutRef = useRef<number | null>(null);
+  const lastRoomRef = useRef<string>("");
+  const lastOwnerRef = useRef<string | null>(null);
+  const lastGameRef = useRef<string | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [hudVisible, setHudVisible] = useState(true);
+  const hudTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    shouldReconnectRef.current = false;
+    if (reconnectTimeoutRef.current) window.clearTimeout(reconnectTimeoutRef.current);
+    inputRef.current?.close();
+    peerRef.current?.close();
+    socketRef.current?.close();
+    if (statsIntervalRef.current) window.clearInterval(statsIntervalRef.current);
+    void audioCtxRef.current?.close();
+  }, []);
+
+  async function refreshRooms() {
+    try {
+      const response = await fetch(roomsUrl, { headers: authToken ? { authorization: `Bearer ${authToken}` } : {} });
+      const data = await response.json() as { rooms: ActiveRoom[] };
+      setActiveRooms(data.rooms);
+      if (!roomTouched && data.rooms.length > 0) setRoom(data.rooms[0].room);
+    } catch {
+      setActiveRooms([]);
+    }
+  }
+
+  useEffect(() => {
+    if (status !== "Disconnected") return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const response = await fetch(roomsUrl, { headers: authToken ? { authorization: `Bearer ${authToken}` } : {} });
+        const data = await response.json() as { rooms: ActiveRoom[] };
+        if (cancelled) return;
+        setActiveRooms(data.rooms);
+        if (!roomTouched && data.rooms.length > 0) setRoom(data.rooms[0].room);
+      } catch {
+        if (!cancelled) setActiveRooms([]);
+      }
+    };
+    void refresh();
+    const interval = window.setInterval(refresh, 3000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [status, roomTouched, authToken]);
+
+  // Deep linking: auto-join room from URL ?room=CODE
+  useEffect(() => {
+    if (!authToken || status !== "Disconnected") return;
+    const params = new URLSearchParams(window.location.search);
+    const targetRoom = params.get("room");
+    if (!targetRoom) return;
+    setRoom(targetRoom);
+    setRoomTouched(true);
+    void connect(targetRoom);
+    window.history.replaceState({}, "", window.location.pathname);
+  }, [authToken, status]);
+
+  async function refreshRoms() {
+    try {
+      const response = await fetch(romsUrl, { headers: authToken ? { authorization: `Bearer ${authToken}` } : {} });
+      const data = await response.json() as { roms: RomEntry[] };
+      setRoms(data.roms);
+      setSelectedRom((current) => current && data.roms.some((r) => r.file === current) ? current : data.roms[0]?.file ?? null);
+    } catch {
+      setRoms([]);
+    }
+  }
+
+  async function deleteRom(file: string) {
+    if (!authToken) return;
+    await fetch(`${romsUrl}/${encodeURIComponent(file)}`, { method: "DELETE", headers: { authorization: `Bearer ${authToken}` } }).catch(() => {});
+    await refreshRoms();
+  }
+
+  const [sharedRoms, setSharedRoms] = useState<Array<{ owner: string; friend: string; rom_file: string; rom: RomEntry | null }>>([]);
+  const [shareModalRom, setShareModalRom] = useState<RomEntry | null>(null);
+
+  async function refreshSharedRoms() {
+    if (!authToken) return;
+    try {
+      const res = await fetch(`${apiBase}/roms/shared`, { headers: { authorization: `Bearer ${authToken}` } });
+      const data = await res.json() as { shared: Array<{ owner: string; friend: string; rom_file: string; rom: RomEntry | null }> };
+      setSharedRoms(data.shared);
+    } catch { setSharedRoms([]); }
+  }
+
+  async function shareRom(friend: string, romFile: string) {
+    if (!authToken) return;
+    await fetch(`${apiBase}/roms/share`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ friend, romFile }),
+    });
+    await refreshSharedRoms();
+  }
+
+  async function unshareRom(friend: string, romFile: string) {
+    if (!authToken) return;
+    await fetch(`${apiBase}/roms/share`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ friend, romFile }),
+    });
+    await refreshSharedRoms();
+  }
+
+  useEffect(() => {
+    if (status !== "Disconnected") return;
+    void refreshRoms();
+    void refreshSharedRoms();
+  }, [status, authToken]);
+
+  async function uploadRom(file: File) {
+    if (!authToken) return;
+    const ext = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
+    const game = EXTENSION_TO_GAME[ext];
+    const info = game ? UPLOAD_INFO[game] : null;
+    if (!info) {
+      setUploadError(`tipo de archivo no soportado: ${ext} — usa .nes, .sfc, .bin, .iso, .img, .pbp, .chd o .zip`);
+      return;
+    }
+    if (file.size > info.maxMB * 1024 * 1024) {
+      setUploadError(`archivo demasiado grande — máx ${info.maxMB} MB para esta consola`);
+      return;
+    }
+    setUploading(true);
+    setUploadProgress(0);
+    setUploadDone(false);
+    setUploadError("");
+    try {
+      const uploadedAny = await new Promise<{ file?: string; files?: Array<{ file: string; game: string; size: number; owner: string }> }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${romsUrl}?filename=${encodeURIComponent(file.name)}`);
+        xhr.setRequestHeader("content-type", "application/octet-stream");
+        xhr.setRequestHeader("authorization", `Bearer ${authToken}`);
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) setUploadProgress(Math.round((event.loaded / event.total) * 100));
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try { resolve(JSON.parse(xhr.responseText)); } catch { reject(new Error("upload failed")); }
+          } else {
+            const body = (() => { try { return JSON.parse(xhr.responseText); } catch { return {}; } })();
+            reject(new Error(body.error ?? `upload failed (${xhr.status})`));
+          }
+        };
+        xhr.onerror = () => reject(new Error("upload failed"));
+        xhr.send(file);
+      });
+      setUploadProgress(100);
+      await refreshRoms();
+      const firstFile = uploadedAny.files ? uploadedAny.files[0] : uploadedAny;
+      setSelectedRom(firstFile?.file ?? null);
+      setUploadDone(true);
+      window.setTimeout(() => setUploadDone(false), 1800);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function refreshBios() {
+    if (!authToken) return;
+    try {
+      const response = await fetch(`${apiBase}/bios`, { headers: { authorization: `Bearer ${authToken}` } });
+      if (!response.ok) return;
+      const body = await response.json() as { ps1: boolean };
+      setPs1BiosReady(body.ps1);
+    } catch { /* ignore transient failures */ }
+  }
+
+  async function uploadBios(file: File) {
+    if (!authToken) return;
+    setBiosUploading(true);
+    setBiosError("");
+    try {
+      const response = await fetch(`${apiBase}/bios/ps1`, {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream", authorization: `Bearer ${authToken}` },
+        body: file,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? `upload failed (${response.status})`);
+      }
+      setPs1BiosReady(true);
+    } catch (error) {
+      setBiosError(error instanceof Error ? error.message : "upload failed");
+    } finally {
+      setBiosUploading(false);
+    }
+  }
+
+  async function connect(targetRoom?: string, owner?: string | null, game?: string | null) {
+    if (socketRef.current) return;
+    const joinRoom = (targetRoom ?? room).trim() || "local";
+    const joinOwner = owner ?? lastOwnerRef.current ?? activeRooms.find((r) => r.room === joinRoom)?.owner ?? null;
+    const joinGame = game ?? lastGameRef.current ?? activeRooms.find((r) => r.room === joinRoom)?.game ?? null;
+    lastRoomRef.current = joinRoom;
+    lastOwnerRef.current = joinOwner;
+    lastGameRef.current = joinGame;
+    shouldReconnectRef.current = true;
+    if (reconnectTimeoutRef.current) { window.clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
+    setRoom(joinRoom);
+    setRoomTouched(true);
+    setRoomOwner(joinOwner);
+    setCurrentGame(joinGame);
+    setStatus("Connecting");
+    myPeerIdRef.current = null;
+    hostPeerIdRef.current = null;
+    heldButtonsRef.current.clear();
+    bitmaskRef.current = 0;
+    setMobilePanelOpen(false);
+    setRoster([]);
+    setChatMessages([]);
+    if (!canvasLocked) { setCanvasOffset({ x: 0, y: 0 }); setCanvasZoom(1); }
+    setCanvasHintVisible(!canvasLocked);
+    const socket = new WebSocket(signalingUrl);
+    socketRef.current = socket;
+    // Fetch TURN credentials from signaling server (HMAC time-limited, 1h TTL)
+    let iceServers: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+    try {
+      const turnResp = await fetch(`${apiBase}/turn`);
+      const turnData = await turnResp.json();
+      if (turnData.enabled && turnData.url) {
+        iceServers = [{ urls: [turnData.url], username: turnData.username, credential: turnData.credential }, ...iceServers];
+      }
+    } catch { /* TURN not available, use STUN only */ }
+    const peer = new RTCPeerConnection({
+      iceServers,
+      bundlePolicy: "max-bundle",
+      iceCandidatePoolSize: 1,
+    });
+    peerRef.current = peer;
+    const pendingCandidates: RTCIceCandidateInit[] = [];
+    peer.ondatachannel = (event) => {
+      const ch = event.channel;
+      ch.binaryType = "arraybuffer";
+      ch.bufferedAmountLowThreshold = 0;
+      inputRef.current = ch;
+      ch.onopen = () => setInputState("Connected");
+      ch.onclose = () => setInputState("Closed");
+    };
+    const mediaStream = new MediaStream();
+    peer.ontrack = (event) => {
+      mediaStream.addTrack(event.track);
+      // Chrome's receiver holds ~100-200ms of media in its jitter buffer by default, tuned for video
+      // calls where smoothness beats latency. For a game that delay lands directly on top of every
+      // button press: it is the largest single contributor to perceived input lag, and nothing on the
+      // server side can remove it. 0 asks for "render as soon as it arrives".
+      if (event.receiver && "playoutDelayHint" in event.receiver) {
+        (event.receiver as RTCRtpReceiver & { playoutDelayHint: number }).playoutDelayHint = 0;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+        videoRef.current.volume = volumeRef.current / 100;
+        videoRef.current.muted = mutedRef.current;
+        // Chrome 103+: tell the browser to minimize internal buffering for the lowest possible latency.
+        if ("latency" in videoRef.current) (videoRef.current as any).latency = "realtime";
+        void videoRef.current.play();
+        if (event.track.kind === "audio") setupAudioGraph(mediaStream);
+      }
+      setMediaState("Receiving media");
+    };
+    peer.onconnectionstatechange = () => {
+      const state = peer.connectionState;
+      if (state === "connected") {
+        setStatus("WebRTC connected");
+        setReconnecting(false);
+        reconnectAttemptsRef.current = 0;
+        if (statsIntervalRef.current) window.clearInterval(statsIntervalRef.current);
+        statsIntervalRef.current = window.setInterval(async () => {
+          const stats = await peer.getStats();
+          stats.forEach((report) => {
+            if (report.type === "candidate-pair" && report.state === "succeeded" && typeof report.currentRoundTripTime === "number") {
+              setRttMs(Math.round(report.currentRoundTripTime * 1000));
+            }
+          });
+        }, 1000);
+      }
+      if (state === "failed") {
+        setStatus("WebRTC failed — restarting ICE");
+        peer.restartIce();
+      }
+      if (state === "closed" || state === "disconnected") {
+        if (statsIntervalRef.current) { window.clearInterval(statsIntervalRef.current); statsIntervalRef.current = null; }
+        setRttMs(null);
+      }
+    };
+    peer.onicecandidate = (event) => {
+      if (event.candidate && socket.readyState === WebSocket.OPEN && hostPeerIdRef.current) {
+        socket.send(JSON.stringify({ type: "candidate", room: joinRoom, to: hostPeerIdRef.current, payload: event.candidate }));
+      }
+    };
+    socket.onopen = async () => {
+      setStatus("Connected to signaling");
+      socket.send(JSON.stringify({ type: "join", room: joinRoom, username: authUsername }));
+    };
+    socket.onmessage = async (event) => {
+      const message = JSON.parse(event.data) as SignalMessage;
+      if (message.type === "join" && message.payload) {
+        const { peerId, playerNumber: number, role, username } = message.payload;
+        if (!myPeerIdRef.current) {
+          myPeerIdRef.current = peerId;
+          playerNumberRef.current = number ?? 1;
+          setPlayerNumber(number ?? 1);
+        }
+        if (role === "player" && peerId !== myPeerIdRef.current) {
+          const label = username ?? "player";
+          setRoster((prev) => prev.some((p) => p.peerId === peerId) ? prev : [...prev, { peerId, playerNumber: number, username: label }]);
+        }
+        return;
+      }
+      if (message.type === "leave" && message.payload?.peerId) {
+        setRoster((prev) => prev.filter((p) => p.peerId !== message.payload.peerId));
+        if (message.payload.peerId === hostPeerIdRef.current) setMediaState("Game server disconnected");
+        return;
+      }
+      if (message.type === "chat" && message.payload) {
+        const { username, playerNumber: pn, text, timestamp } = message.payload;
+        setChatMessages((prev) => [...prev.slice(-99), { username, playerNumber: pn, text, timestamp }]);
+        return;
+      }
+      if (message.type === "owner_changed" && message.payload) {
+        setRoomOwner(message.payload.owner ?? null);
+        return;
+      }
+      if (message.type === "closed") {
+        shouldReconnectRef.current = false;
+        socket.close();
+        return;
+      }
+      if (message.type === "offer" && message.payload) {
+        hostPeerIdRef.current = message.from ?? null;
+        await peer.setRemoteDescription(message.payload);
+        for (const candidate of pendingCandidates.splice(0)) await peer.addIceCandidate(candidate);
+        const answer = await peer.createAnswer();
+        // SDP munge: force Chrome's internal jitterbuffer to minimum for lowest video latency.
+        if (answer.sdp) {
+          answer.sdp = answer.sdp.replace(/a=fmtp:(\d+) /g, (m) =>
+            m + "; x-google-min-bitrate=1; x-google-start-bitrate=1500; x-google-max-bitrate=4000"
+          );
+        }
+        await peer.setLocalDescription(answer);
+        if (hostPeerIdRef.current) {
+          socket.send(JSON.stringify({ type: "answer", room: joinRoom, to: hostPeerIdRef.current, payload: peer.localDescription }));
+        }
+        setStatus("Answer sent");
+      }
+      if (message.type === "candidate" && message.payload) {
+        if (peer.remoteDescription) await peer.addIceCandidate(message.payload);
+        else pendingCandidates.push(message.payload);
+      }
+    };
+    socket.onerror = () => setStatus("Signaling error");
+    socket.onclose = () => {
+      socketRef.current = null; peerRef.current?.close(); peerRef.current = null;
+      if (statsIntervalRef.current) { window.clearInterval(statsIntervalRef.current); statsIntervalRef.current = null; }
+      gainNodeRef.current = null;
+      setRttMs(null);
+      const maxAttempts = 6;
+      if (shouldReconnectRef.current && reconnectAttemptsRef.current < maxAttempts) {
+        reconnectAttemptsRef.current += 1;
+        setReconnecting(true);
+        setStatus("Connecting");
+        const delay = Math.min(500 * 2 ** (reconnectAttemptsRef.current - 1), 15000);
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          void connect(lastRoomRef.current, lastOwnerRef.current, lastGameRef.current);
+        }, delay);
+      } else {
+        setReconnecting(false);
+        shouldReconnectRef.current = false;
+        setStatus("Disconnected");
+      }
+    };
+  }
+
+  async function submitAuth() {
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      const response = await fetch(`${apiBase}/auth/${authMode}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(authForm),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "authentication failed");
+      localStorage.setItem("rc_token", data.token);
+      localStorage.setItem("rc_username", authForm.username);
+      setAuthToken(data.token);
+      setAuthUsername(authForm.username);
+      setAuthForm({ username: "", password: "", email: "" });
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "authentication failed");
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function refreshFriends() {
+    if (!authToken) return;
+    try {
+      const response = await fetch(`${apiBase}/friends`, { headers: { authorization: `Bearer ${authToken}` } });
+      if (response.ok) setFriends(await response.json());
+    } catch {
+      // ignore transient failures
+    }
+  }
+
+  async function saveEmail() {
+    if (!authToken || !emailInput.trim()) return;
+    setEmailSaving(true);
+    setEmailError("");
+    try {
+      const response = await fetch(`${apiBase}/auth/email`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ email: emailInput.trim() }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? "failed to save email");
+      }
+      setProfileEmail(emailInput.trim());
+      setEmailPromptOpen(false);
+    } catch (error) {
+      setEmailError(error instanceof Error ? error.message : "failed to save email");
+    } finally {
+      setEmailSaving(false);
+    }
+  }
+
+  async function sendFriendRequest() {
+    if (!authToken || !addFriendInput.trim()) return;
+    setFriendError("");
+    try {
+      const response = await fetch(`${apiBase}/friends/request`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ username: addFriendInput.trim() }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? "failed to send friend request");
+      }
+      setAddFriendInput("");
+      await refreshFriends();
+    } catch (error) {
+      setFriendError(error instanceof Error ? error.message : "failed to send friend request");
+    }
+  }
+
+  async function respondFriendRequest(username: string, accept: boolean) {
+    if (!authToken) return;
+    await fetch(`${apiBase}/friends/respond`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ username, accept }),
+    });
+    await refreshFriends();
+  }
+
+  async function removeFriend(username: string) {
+    if (!authToken) return;
+    await fetch(`${apiBase}/friends/${encodeURIComponent(username)}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${authToken}` },
+    });
+    await refreshFriends();
+  }
+
+  async function refreshInbox() {
+    if (!authToken) return;
+    try {
+      const response = await fetch(`${apiBase}/inbox`, { headers: { authorization: `Bearer ${authToken}` } });
+      if (response.ok) {
+        const data = await response.json() as { inbox: typeof inbox; unread: number };
+        setInbox(data.inbox);
+        setUnreadCount(data.unread);
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function openDM(peer: string) {
+    if (!authToken) return;
+    setDmPeer(peer);
+    setDmLoading(true);
+    try {
+      const response = await fetch(`${apiBase}/dm/${encodeURIComponent(peer)}`, { headers: { authorization: `Bearer ${authToken}` } });
+      if (response.ok) {
+        const data = await response.json() as { messages: typeof dmMessages };
+        setDmMessages(data.messages);
+      }
+      await fetch(`${apiBase}/dm/${encodeURIComponent(peer)}/read`, { method: "POST", headers: { authorization: `Bearer ${authToken}` } });
+      await refreshInbox();
+    } catch { /* ignore */ }
+    setDmLoading(false);
+  }
+
+  async function sendDM() {
+    if (!authToken || !dmPeer || !dmInput.trim()) return;
+    const text = dmInput.trim();
+    setDmInput("");
+    try {
+      const response = await fetch(`${apiBase}/dm/${encodeURIComponent(dmPeer)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ text }),
+      });
+      if (response.ok) {
+        const msg = await response.json() as { id: number; created_at: string };
+        setDmMessages((prev) => [...prev, { id: msg.id, sender: authUsername!, body: text, created_at: msg.created_at }]);
+      }
+    } catch { /* ignore */ }
+  }
+
+  useEffect(() => {
+    if (dmEndRef.current) dmEndRef.current.scrollIntoView({ behavior: "smooth" });
+  }, [dmMessages]);
+
+  useEffect(() => {
+    if (!authToken) { setProfileEmail(null); return; }
+    (async () => {
+      try {
+        const response = await fetch(`${apiBase}/auth/me`, { headers: { authorization: `Bearer ${authToken}` } });
+        if (!response.ok) return;
+        const profile = await response.json() as { email: string | null };
+        setProfileEmail(profile.email);
+        if (!profile.email) setEmailPromptOpen(true);
+      } catch {
+        // ignore transient failures
+      }
+      void refreshFriends();
+      void refreshInbox();
+      void refreshBios();
+    })();
+  }, [authToken]);
+
+  function logout() {
+    if (authToken) void fetch(`${apiBase}/auth/logout`, { method: "POST", headers: { authorization: `Bearer ${authToken}` } });
+    localStorage.removeItem("rc_token");
+    localStorage.removeItem("rc_username");
+    setAuthToken(null);
+    setAuthUsername(null);
+  }
+
+  async function createRoom(file?: string) {
+    const targetFile = file ?? selectedRom;
+    if (!authToken || !targetFile) return;
+    setCreating(true);
+    setCreateError("");
+    try {
+      const response = await fetch(roomsUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ file: targetFile, visibility: newRoomVisibility, bandwidth: newRoomBandwidth }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? `failed to create room (${response.status})`);
+      }
+      const data = await response.json() as { room: string };
+      await connect(data.room, authUsername, roms.find((r) => r.file === targetFile)?.game ?? null);
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : "failed to create room");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function runNetworkDiagnostic() {
+    setDiagRunning(true);
+    setDiagResult(null);
+    try {
+      const httpBase = apiBase;
+      const samples: number[] = [];
+      const pings = 8;
+      for (let i = 0; i < pings; i++) {
+        const t0 = performance.now();
+        await fetch(`${httpBase}/ping?_=${Date.now()}`, { cache: "no-store" });
+        samples.push(performance.now() - t0);
+      }
+      const rtt = samples.reduce((a, b) => a + b, 0) / samples.length;
+      const sorted = [...samples].sort((a, b) => a - b);
+      const jitter = sorted[Math.floor(sorted.length * 0.9)] - sorted[Math.floor(sorted.length * 0.1)];
+
+      const dlStart = performance.now();
+      let dlBytes = 0;
+      try {
+        const resp = await fetch(`${httpBase}/ping?dl=${Date.now()}`, { cache: "no-store" });
+        const blob = await resp.blob();
+        dlBytes = blob.size;
+      } catch { dlBytes = 0; }
+      const dlSec = (performance.now() - dlStart) / 1000;
+      const downKbps = dlSec > 0 ? Math.round((dlBytes * 8) / dlSec / 1000) : 0;
+
+      let rating: "excellent" | "good" | "fair" | "poor";
+      if (rtt < 50 && jitter < 10) rating = "excellent";
+      else if (rtt < 100 && jitter < 25) rating = "good";
+      else if (rtt < 180 && jitter < 50) rating = "fair";
+      else rating = "poor";
+
+      const recommended = rating === "excellent" ? "high" : rating === "good" ? "medium" : "low";
+      setNewRoomBandwidth(recommended);
+      setDiagResult({ rtt: Math.round(rtt), jitter: Math.round(jitter), downKbps, rating });
+    } catch {
+      setDiagResult({ rtt: -1, jitter: -1, downKbps: 0, rating: "poor" });
+      setNewRoomBandwidth("low");
+    } finally {
+      setDiagRunning(false);
+    }
+  }
+
+  function shareLinkFor(roomCode: string): string {
+    const url = new URL(window.location.href);
+    url.searchParams.set("room", roomCode);
+    return url.toString();
+  }
+
+  async function copyShareLink(roomCode: string) {
+    const link = shareLinkFor(roomCode);
+    try {
+      await navigator.clipboard.writeText(link);
+      setShareLinkCopied(true);
+      playClickSound();
+      window.setTimeout(() => setShareLinkCopied(false), 2000);
+    } catch { window.prompt("Copy this link:", link); }
+  }
+
+  function openShareDialog(roomCode: string) {
+    const link = shareLinkFor(roomCode);
+    if (navigator.share) {
+      navigator.share({ title: "retroX — join my room", url: link }).catch(() => {});
+      return;
+    }
+    setShareDialogRoom(roomCode);
+  }
+
+  async function closeRoom() {
+    if (!authToken || closingRoom) return;
+    shouldReconnectRef.current = false;
+    setClosingRoom(true);
+    try {
+      const response = await fetch(`${roomsUrl}/${encodeURIComponent(room)}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${authToken}` },
+      });
+      if (!response.ok && response.status !== 404) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? `failed to close room (${response.status})`);
+      }
+    } catch (error) {
+      console.error("[ROOM] failed to close room:", error);
+    } finally {
+      socketRef.current?.close();
+      setClosingRoom(false);
+    }
+  }
+
+  function transferHost(targetPeerId: string) {
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+    socketRef.current.send(JSON.stringify({ type: "transfer_host", room, payload: { targetPeerId } }));
+  }
+
+  function setupAudioGraph(stream: MediaStream) {
+    if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
+    const ctx = audioCtxRef.current;
+    if (ctx.state === "suspended") void ctx.resume();
+    // A compressor normalizes perceived loudness so a lower slider position still sounds full/clear
+    // instead of just thin and quiet — makeup gain keeps the room's average level consistent.
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.value = -32;
+    compressor.knee.value = 18;
+    compressor.ratio.value = 6;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.25;
+    const gain = ctx.createGain();
+    gain.gain.value = mutedRef.current ? 0 : volumeRef.current / 100;
+    ctx.createMediaStreamSource(stream).connect(compressor).connect(gain).connect(ctx.destination);
+    gainNodeRef.current = gain;
+    if (videoRef.current) videoRef.current.muted = true; // audio now plays through the Web Audio graph above
+  }
+
+  useEffect(() => {
+    volumeRef.current = volume;
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = muted ? 0 : volume / 100;
+    else if (videoRef.current) videoRef.current.volume = volume / 100;
+    localStorage.setItem("rc_volume", String(volume));
+  }, [volume, muted]);
+
+  useEffect(() => {
+    mutedRef.current = muted;
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = muted ? 0 : volume / 100;
+    else if (videoRef.current) videoRef.current.muted = muted;
+    localStorage.setItem("rc_muted", muted ? "1" : "0");
+  }, [muted]);
+
+
+  useEffect(() => { localStorage.setItem("rc_touch_layout", touchLayout); }, [touchLayout]);
+  useEffect(() => { localStorage.setItem("rc_touch_size", touchSize); }, [touchSize]);
+  useEffect(() => { localStorage.setItem("rc_ps1_ctrl", ps1ControlMode); }, [ps1ControlMode]);
+  useEffect(() => { localStorage.setItem("rc_custom_ctrl", JSON.stringify(customPositions)); }, [customPositions]);
+
+  useEffect(() => {
+    const onFsChange = () => { if (!document.fullscreenElement) setIsFullscreen(false); };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  async function toggleFullscreen() {
+    // iOS Safari doesn't reliably support (or, pre-16.4, doesn't support at all) the Fullscreen API on
+    // an arbitrary element, and can silently no-op. A CSS-driven "pseudo-fullscreen" (fixed, covers the
+    // full dynamic viewport) is what actually maximizes the game there; on browsers that do support real
+    // fullscreen we still request it too, so the browser chrome hides where possible.
+    if (isFullscreen) {
+      setIsFullscreen(false);
+      if (document.fullscreenElement) { try { await document.exitFullscreen(); } catch { /* ignore */ } }
+      return;
+    }
+    setIsFullscreen(true);
+    if (stageWrapRef.current?.requestFullscreen) {
+      try { await stageWrapRef.current.requestFullscreen(); } catch { /* CSS fallback still applies */ }
+    }
+  }
+
+  function onCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (canvasLocked) return;
+    if (event.button !== 0 && event.pointerType === "mouse") return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDraggingCanvas(true);
+    setCanvasHintVisible(false);
+    canvasDragRef.current = { startX: event.clientX, startY: event.clientY, originX: canvasOffset.x, originY: canvasOffset.y };
+  }
+  function onCanvasPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = canvasDragRef.current;
+    if (!drag) return;
+    setCanvasOffset({ x: drag.originX + (event.clientX - drag.startX), y: drag.originY + (event.clientY - drag.startY) });
+  }
+  function onCanvasPointerUp() {
+    canvasDragRef.current = null;
+    setDraggingCanvas(false);
+  }
+  function resetCanvasPosition() {
+    setCanvasOffset({ x: 0, y: 0 });
+    setCanvasZoom(1);
+  }
+  function toggleCanvasLock() {
+    if (canvasLocked) {
+      setCanvasLocked(false);
+      localStorage.removeItem("rc_canvas_lock");
+      setCanvasToast(t("positionUnlocked"));
+    } else {
+      setCanvasLocked(true);
+      localStorage.setItem("rc_canvas_lock", JSON.stringify({ locked: true, x: canvasOffset.x, y: canvasOffset.y, zoom: canvasZoom }));
+      setCanvasToast(t("positionLocked"));
+    }
+    window.setTimeout(() => setCanvasToast(null), 1800);
+  }
+
+  function sendChat() {
+    const text = chatInput.trim();
+    if (!text || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+    socketRef.current.send(JSON.stringify({ type: "chat", room, payload: { text } }));
+    setChatInput("");
+  }
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ block: "end" });
+  }, [chatMessages]);
+
+  // Binary encoding: send full 16-bit button bitmask [0xFF, lo, hi] on every change.
+  // Unreliable data channel — no SCTP retransmit blocking; lost messages corrected by next event.
+  const BUTTON_TO_ID: Record<string, number> = {
+    B: 0, Y: 1, SELECT: 2, START: 3, UP: 4, DOWN: 5, LEFT: 6, RIGHT: 7,
+    A: 8, X: 9, L: 10, R: 11, L2: 12, R2: 13, L3: 14, R3: 15,
+  };
+  function sendInput(button: Button, pressed: boolean) {
+    const id = BUTTON_TO_ID[button];
+    if (id === undefined) return;
+    const bit = 1 << id;
+    const already = (bitmaskRef.current & bit) !== 0;
+    if (pressed === already) return;
+    if (pressed) bitmaskRef.current |= bit; else bitmaskRef.current &= ~bit;
+    const ch = inputRef.current;
+    if (!ch || ch.readyState !== "open") return;
+    const buf = sendBufRef.current;
+    buf[1] = bitmaskRef.current & 0xFF;
+    buf[2] = (bitmaskRef.current >> 8) & 0xFF;
+    ch.send(buf);
+  }
+
+  function rebindKey(button: Button) {
+    setRebinding(button);
+  }
+
+  useEffect(() => {
+    if (!rebinding) return;
+    const capture = (event: KeyboardEvent) => {
+      event.preventDefault();
+      const next = { ...keyBindingsByGame, [activeConsole]: { ...(keyBindingsByGame[activeConsole] ?? {}), [rebinding]: event.key } };
+      setKeyBindingsByGame(next);
+      localStorage.setItem("rc_keybindings", JSON.stringify(next));
+      setRebinding(null);
+    };
+    window.addEventListener("keydown", capture, { once: true });
+    return () => window.removeEventListener("keydown", capture);
+  }, [rebinding, keyBindingsByGame, activeConsole]);
+
+  useEffect(() => {
+    if (rebinding) return;
+    const reverseMap: Record<string, Button> = {};
+    for (const button of buttons) reverseMap[keyBindings[button]] = button;
+    const isTypingTarget = (target: EventTarget | null) => {
+      const el = target as HTMLElement | null;
+      return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+    };
+    const down = (event: KeyboardEvent) => {
+      if (event.repeat || isTypingTarget(event.target)) return;
+      const button = reverseMap[event.key]; if (button) { event.preventDefault(); sendInput(button, true); }
+    };
+    const up = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) return;
+      const button = reverseMap[event.key]; if (button) { event.preventDefault(); sendInput(button, false); }
+    };
+    // If the window/tab loses focus while a key is held (alt-tab, clicking another element), no keyup
+    // ever fires — the game-server keeps thinking that button is held down forever. Release everything.
+    const releaseAll = () => { bitmaskRef.current = 0; const ch = inputRef.current; if (ch && ch.readyState === "open") { sendBufRef.current[1] = 0; sendBufRef.current[2] = 0; ch.send(sendBufRef.current); } };
+    const onVisibility = () => { if (document.hidden) releaseAll(); };
+    window.addEventListener("keydown", down); window.addEventListener("keyup", up);
+    window.addEventListener("blur", releaseAll);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("keydown", down); window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", releaseAll);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [keyBindings, rebinding]);
+
+  useEffect(() => { gamepadBindingsRef.current = gamepadBindings; }, [gamepadBindings]);
+  useEffect(() => { rebindingGamepadRef.current = rebindingGamepad; }, [rebindingGamepad]);
+
+  useEffect(() => {
+    const onConnect = () => setGamepadConnected(true);
+    const onDisconnect = () => { if (navigator.getGamepads().every((gp) => !gp)) setGamepadConnected(false); };
+    window.addEventListener("gamepadconnected", onConnect);
+    window.addEventListener("gamepaddisconnected", onDisconnect);
+    if (navigator.getGamepads().some((gp) => gp)) setGamepadConnected(true);
+    return () => {
+      window.removeEventListener("gamepadconnected", onConnect);
+      window.removeEventListener("gamepaddisconnected", onDisconnect);
+    };
+  }, []);
+
+  // Polls the Gamepad API every frame — it has no press/release events, only a live snapshot — and either
+  // captures the next pressed button while rebinding, or forwards held/released buttons like the keyboard.
+  useEffect(() => {
+    if (status === "Disconnected") return;
+    let raf = 0;
+    const tick = () => {
+      const pad = navigator.getGamepads().find((gp) => gp && gp.connected);
+      if (pad) {
+        const rebindTarget = rebindingGamepadRef.current;
+        if (rebindTarget) {
+          const pressedIndex = pad.buttons.findIndex((b) => b.pressed || b.value > 0.5);
+          if (pressedIndex >= 0) {
+            const next = { ...gamepadBindingsByGame, [activeConsole]: { ...(gamepadBindingsByGame[activeConsole] ?? {}), [rebindTarget]: pressedIndex } };
+            setGamepadBindingsByGame(next);
+            localStorage.setItem("rc_gamepad_bindings", JSON.stringify(next));
+            setRebindingGamepad(null);
+          }
+        } else {
+          for (const button of buttons) {
+            const index = gamepadBindingsRef.current[button];
+            const gamepadButton = pad.buttons[index];
+            const pressed = !!gamepadButton && (gamepadButton.pressed || gamepadButton.value > 0.5);
+            const wasHeld = gamepadHeldRef.current.has(button);
+            if (pressed !== wasHeld) {
+              if (pressed) gamepadHeldRef.current.add(button); else gamepadHeldRef.current.delete(button);
+              sendInput(button, pressed);
+            }
+          }
+        }
+      }
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(raf);
+  }, [status, activeConsole, gamepadBindingsByGame]);
+
+  useEffect(() => {
+    if (!canvasHintVisible) return;
+    const timer = window.setTimeout(() => setCanvasHintVisible(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [canvasHintVisible]);
+
+  const inLobby = status === "Disconnected";
+
+  function flashHud() {
+    setHudVisible(true);
+    if (hudTimeoutRef.current) window.clearTimeout(hudTimeoutRef.current);
+    hudTimeoutRef.current = window.setTimeout(() => setHudVisible(false), 3000);
+  }
+
+  useEffect(() => {
+    if (!inLobby && isTouchDevice) {
+      flashHud();
+      return () => { if (hudTimeoutRef.current) window.clearTimeout(hudTimeoutRef.current); };
+    }
+  }, [inLobby, isTouchDevice]);
+
+  if (!authToken) {
+    return <div className="auth-split">
+      <div className="auth-visual">
+        <div className="brand-row">
+          <div className="brand"><span className="brand-mark">◆</span><span className="brand-name">retro<em>X</em></span></div>
+          <LangToggle lang={lang} setLang={setLang} />
+        </div>
+        <h1 className="auth-visual-title" dangerouslySetInnerHTML={{ __html: t("brandTagline") }} />
+        <p className="auth-visual-sub">{t("brandSub")}</p>
+        <ul className="auth-feature-list">
+          <li><span className="dot live" />{t("featurePlayers")}</li>
+          <li><span className="dot live" />{t("featureRoms")}</li>
+          <li><span className="dot live" />{t("featureChat")}</li>
+        </ul>
+      </div>
+      <div className="auth-form-side">
+        <section className="auth-gate">
+          <h2>{authMode === "login" ? t("welcomeBack") : t("createAccount")}</h2>
+          <p className="auth-sub">{authMode === "login" ? t("loginSub") : t("registerSub")}</p>
+          <div className="auth-form">
+            <label className="auth-field-label" htmlFor="auth-username">{t("username")}</label>
+            <input id="auth-username" className="field" value={authForm.username} onChange={(e) => setAuthForm((f) => ({ ...f, username: e.target.value }))} placeholder={t("usernamePlaceholder")} aria-label={t("username")} autoComplete="username" />
+            {authMode === "register" && (
+              <>
+                <label className="auth-field-label" htmlFor="auth-email">{t("email")}</label>
+                <input id="auth-email" className="field" type="email" value={authForm.email} onChange={(e) => setAuthForm((f) => ({ ...f, email: e.target.value }))} placeholder="you@example.com" aria-label={t("email")} autoComplete="email" />
+              </>
+            )}
+            <label className="auth-field-label" htmlFor="auth-password">{t("password")}</label>
+            <input id="auth-password" className="field" type="password" value={authForm.password} onChange={(e) => setAuthForm((f) => ({ ...f, password: e.target.value }))} placeholder="••••••••" aria-label={t("password")} autoComplete={authMode === "login" ? "current-password" : "new-password"} />
+            <button className="btn-primary" onClick={submitAuth} disabled={authLoading || !authForm.username || !authForm.password || (authMode === "register" && !authForm.email)}>
+              {authLoading ? "…" : authMode === "login" ? t("logIn") : t("createAccountBtn")}
+            </button>
+          </div>
+          {authError && <p className="form-error">{authError}</p>}
+          <p className="auth-switch">
+            {authMode === "login" ? t("needAccount") : t("haveAccount")}{" "}
+            <button className="link-button" onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(""); }}>
+              {authMode === "login" ? t("register") : t("logIn")}
+            </button>
+          </p>
+        </section>
+      </div>
+    </div>;
+  }
+
+  return <main className={inLobby ? undefined : "in-room"}>
+    {inLobby && (
+      <nav className="side-rail">
+        <div className="side-rail-brand"><span className="brand-name brand-sidebar">retro<em>X</em></span></div>
+        <div className="side-rail-nav">
+          <button className={lobbyView === "catalog" ? "side-rail-btn active" : "side-rail-btn"} onClick={() => setLobbyView("catalog")}>
+            <IconGrid /><span>{t("catalogTab")}</span>
+          </button>
+          <button className={lobbyView === "rooms" ? "side-rail-btn active" : "side-rail-btn"} onClick={() => setLobbyView("rooms")}>
+            <IconRoomsNav /><span>{t("roomsTab")}</span>
+          </button>
+          <button className={lobbyView === "social" ? "side-rail-btn active" : "side-rail-btn"} onClick={() => setLobbyView("social")}>
+            <IconFriends /><span>{t("socialTab")}</span>
+          </button>
+        </div>
+        <div className="side-rail-bottom">
+          <LangToggle lang={lang} setLang={setLang} />
+          <button className="side-rail-avatar-btn" onClick={() => setAccountPopoverOpen((v) => !v)} aria-label={t("account")}>
+            <span className="roster-avatar small">{(authUsername ?? "?").slice(0, 1).toUpperCase()}</span>
+            {friends.incoming.length > 0 && <span className="fab-badge inline-badge" />}
+          </button>
+          <button className="side-rail-logout" onClick={logout} aria-label={t("logOut")}><IconLogout /></button>
+        </div>
+      </nav>
+    )}
+
+    {inLobby && (
+      <nav className="bottom-tab-bar">
+        <button className={lobbyView === "catalog" ? "bottom-tab active" : "bottom-tab"} onClick={() => setLobbyView("catalog")}>
+          <IconGrid /><span>{t("catalogTab")}</span>
+        </button>
+        <button className={lobbyView === "rooms" ? "bottom-tab active" : "bottom-tab"} onClick={() => setLobbyView("rooms")}>
+          <IconRoomsNav /><span>{t("roomsTab")}</span>
+        </button>
+        <button className={lobbyView === "social" ? "bottom-tab active" : "bottom-tab"} onClick={() => setLobbyView("social")}>
+          <IconFriends /><span>{t("socialTab")}</span>
+        </button>
+        <button className={lobbyView === "profile" ? "bottom-tab active" : "bottom-tab"} onClick={() => setLobbyView("profile")}>
+          <span className="roster-avatar small" style={{ position: "relative" }}>
+            {(authUsername ?? "?").slice(0, 1).toUpperCase()}
+            {friends.incoming.length > 0 && <span className="fab-badge inline-badge" />}
+          </span>
+          <span>{t("account")}</span>
+        </button>
+      </nav>
+    )}
+
+
+
+    {inLobby && accountPopoverOpen && (
+      <>
+        <div className="popover-backdrop" onClick={() => setAccountPopoverOpen(false)} />
+        <div className="account-popover">
+          <div className="account-popover-head">
+            <span className="roster-avatar">{(authUsername ?? "?").slice(0, 1).toUpperCase()}</span>
+            <p className="account-popover-name">{authUsername}</p>
+          </div>
+          <button className="account-popover-item" onClick={() => { setLobbyView("profile"); setAccountPopoverOpen(false); }}>
+            <IconProfile /> {t("goToProfile")}
+          </button>
+          <div className="account-popover-item account-popover-plan">
+            <IconCrown /> {t("plan")}
+            <span className="soon-badge">{t("comingSoon")}</span>
+          </div>
+          <button className="btn-danger account-popover-logout" onClick={logout}>{t("logOut")}</button>
+        </div>
+      </>
+    )}
+
+    {emailPromptOpen && authToken && (
+      <div className="settings-backdrop email-backdrop" onClick={() => profileEmail && setEmailPromptOpen(false)}>
+        <div className="email-dialog" onClick={(e) => e.stopPropagation()}>
+          <div className="email-dialog-icon">
+            <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="4" width="20" height="16" rx="3" />
+              <path d="M2 7l8.9 5.3a2 2 0 0 0 2.2 0L22 7" />
+            </svg>
+          </div>
+          <h2 className="email-dialog-title">{t("addEmailTitle")}</h2>
+          <p className="email-dialog-sub">{t("addEmailSub")}</p>
+          <div className="email-input-wrap">
+            <svg className="email-input-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="4" width="20" height="16" rx="3" />
+              <path d="M2 7l8.9 5.3a2 2 0 0 0 2.2 0L22 7" />
+            </svg>
+            <input
+              className="email-input"
+              type="email"
+              value={emailInput}
+              onChange={(event) => setEmailInput(event.target.value)}
+              placeholder="you@example.com"
+              aria-label={t("email")}
+            />
+          </div>
+          {emailError && <p className="email-error">{emailError}</p>}
+          <button className="email-save-btn" onClick={saveEmail} disabled={emailSaving || !emailInput.trim()}>
+            {emailSaving ? "…" : t("save")}
+          </button>
+          {profileEmail && (
+            <button className="email-skip-btn" onClick={() => setEmailPromptOpen(false)}>
+              {t("later")}
+            </button>
+          )}
+        </div>
+      </div>
+    )}
+
+    {inLobby && lobbyView === "rooms" && (
+      <section className="lobby">
+        {/* Desktop Header */}
+        <div className="jam-header-bar topbar-desktop-only">
+          <div className="jam-search-box">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            <input
+              className="jam-search-input"
+              value={roomSearch}
+              onChange={(e) => setRoomSearch(e.target.value)}
+              placeholder={t("searchRooms")}
+              aria-label={t("searchRooms")}
+            />
+          </div>
+          <div className="jam-hashtags-row">
+            {ROOM_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                className={`jam-hashtag-pill${roomFilter === f.key ? " active" : ""}`}
+                onClick={() => { setRoomFilter(roomFilter === f.key ? "all" : f.key); playClickSound(); }}
+              >
+                {f.icon} {t(f.labelKey)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Mobile Header */}
+        <div className="jam-mobile-header topbar-mobile-only">
+          <div className="jam-mobile-search">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            <input
+              className="jam-mobile-search-input"
+              value={roomSearch}
+              onChange={(e) => setRoomSearch(e.target.value)}
+              placeholder={t("searchRooms")}
+              aria-label={t("searchRooms")}
+            />
+            {roomSearch && (
+              <button className="jam-mobile-search-clear" onClick={() => setRoomSearch("")}>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            )}
+          </div>
+          <div className="jam-mobile-tags">
+            {ROOM_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                className={`jam-mobile-tag${roomFilter === f.key ? " active" : ""}`}
+                onClick={() => { setRoomFilter(roomFilter === f.key ? "all" : f.key); playClickSound(); }}
+              >
+                {f.icon} {t(f.labelKey)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Stats strip */}
+        <div className="stat-strip">
+          <div className="stat-card">
+            <span className="stat-value">{activeRooms.length}</span>
+            <span className="stat-label">{t("statLiveRooms")}</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-value">{activeRooms.reduce((sum, r) => sum + r.peerCount, 0)}</span>
+            <span className="stat-label">{t("statPlayersOnline")}</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-value">{activeRooms.filter((r) => r.visibility !== "private").length}</span>
+            <span className="stat-label">{t("statPublicRooms")}</span>
+          </div>
+        </div>
+
+        {/* Friend rooms highlight */}
+        {friendRooms.length > 0 && (
+          <div className="jam-section">
+            <h3 className="netflix-row-title">👥 {t("friendsPlaying")}</h3>
+            <div className="room-showcase-grid">
+              {friendRooms.map((entry) => (
+                <button key={entry.room} className="room-showcase-card friend-highlight" onClick={() => connect(entry.room, entry.owner, entry.game)}>
+                  <div className="room-showcase-banner">
+                    <div className="room-showcase-banner-bg" style={{ background: CONSOLES.find(c => c.id === entry.game)?.gradient ?? "linear-gradient(135deg, #8b5cf6, #0f172a)" }} />
+                    <div className="room-showcase-overlay" />
+                    <span className="live-pulse" />
+                    <span className="room-showcase-game">{CONSOLES.find(c => c.id === entry.game)?.label ?? entry.game?.toUpperCase()}</span>
+                  </div>
+                  <div className="room-showcase-body">
+                    <div className="room-showcase-owner">
+                      <span className="roster-avatar small">{(entry.owner ?? "?").slice(0, 1).toUpperCase()}</span>
+                      <span className="room-showcase-name">{entry.owner}</span>
+                    </div>
+                    <div className="room-showcase-info">
+                      <span className="room-showcase-players">🎮 {entry.peerCount} {t("playing")}</span>
+                      <span className="room-showcase-code">{entry.room}</span>
+                    </div>
+                    <span className="room-showcase-cta">{t("joinRoomCta")}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* All rooms */}
+        <div className="jam-section">
+          <h3 className="netflix-row-title">{t("allRooms")}</h3>
+          {filteredRooms.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-glyph">🎮</div>
+              <p>{t("noRoomsOnline")}</p>
+              <span>{t("createOneBelow")}</span>
+            </div>
+          ) : (
+            <div className="room-showcase-grid">
+              {filteredRooms.map((entry) => {
+                const isFriend = entry.owner != null && friends.friends.includes(entry.owner);
+                return (
+                  <button key={entry.room} className={`room-showcase-card${isFriend ? " friend-card" : ""}`} onClick={() => connect(entry.room, entry.owner, entry.game)}>
+                    <div className="room-showcase-banner">
+                      <div className="room-showcase-banner-bg" style={{ background: CONSOLES.find(c => c.id === entry.game)?.gradient ?? "linear-gradient(135deg, #8b5cf6, #0f172a)" }} />
+                      <div className="room-showcase-overlay" />
+                      {entry.visibility === "private" && <span className="room-showcase-lock"><IconLock /></span>}
+                      <span className="room-showcase-game">{CONSOLES.find(c => c.id === entry.game)?.label ?? entry.game?.toUpperCase()}</span>
+                    </div>
+                    <div className="room-showcase-body">
+                      <div className="room-showcase-owner">
+                        <span className="roster-avatar small">{(entry.owner ?? "?").slice(0, 1).toUpperCase()}</span>
+                        <span className="room-showcase-name">{entry.owner ?? t("unowned")}</span>
+                        {isFriend && <span className="friend-badge"> Friend</span>}
+                      </div>
+                      <div className="room-showcase-info">
+                        <span className="room-showcase-players">🎮 {entry.peerCount} {t("playing")}</span>
+                        <span className="room-showcase-code">{entry.room}</span>
+                      </div>
+                      <span className="room-showcase-cta">{t("joinRoomCta")}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Join by code */}
+        <div className="lobby-card" style={{ marginTop: 12 }}>
+          <p className="form-label">{t("joinByCode")}</p>
+          <div className="form-row">
+            <input
+              className="field"
+              value={room}
+              onChange={(event) => { setRoom(event.target.value); setRoomTouched(true); }}
+              placeholder={t("roomCodePlaceholder")}
+              aria-label={t("room")}
+            />
+            <button className="btn-ghost" onClick={() => connect()} disabled={status !== "Disconnected"}>{t("join")}</button>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "center", padding: "12px 0" }}>
+          <button className="btn-ghost" onClick={() => void refreshRooms()}><IconRefresh /> {t("refresh")}</button>
+        </div>
+      </section>
+    )}
+
+    {inLobby && lobbyView === "catalog" && (
+      <section className="lobby">
+        {/* Desktop Header Toolbar */}
+        <div className="jam-header-bar topbar-desktop-only">
+          <div className="jam-search-box">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            <input
+              className="jam-search-input"
+              value={catalogSearch}
+              onChange={(event) => setCatalogSearch(event.target.value)}
+              placeholder={t("searchGames")}
+              aria-label={t("searchGames")}
+            />
+          </div>
+          <div className="jam-hashtags-row">
+            {HASHTAGS.map((tag) => (
+              <button
+                key={tag}
+                className={`jam-hashtag-pill${catalogSearch === tag ? " active" : ""}`}
+                onClick={() => { setCatalogSearch(catalogSearch === tag ? "" : tag); playClickSound(); }}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Mobile Header Toolbar */}
+        <div className="jam-mobile-header topbar-mobile-only">
+          <div className="jam-mobile-search">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            <input
+              className="jam-mobile-search-input"
+              value={catalogSearch}
+              onChange={(event) => setCatalogSearch(event.target.value)}
+              placeholder={t("searchGames")}
+              aria-label={t("searchGames")}
+            />
+            {catalogSearch && (
+              <button className="jam-mobile-search-clear" onClick={() => setCatalogSearch("")}>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+              </button>
+            )}
+          </div>
+          <div className="jam-mobile-tags">
+            {HASHTAGS.map((tag) => (
+              <button
+                key={tag}
+                className={`jam-mobile-tag${catalogSearch === tag ? " active" : ""}`}
+                onClick={() => { setCatalogSearch(catalogSearch === tag ? "" : tag); playClickSound(); }}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Featured / Pinned ROMs */}
+        <div className="jam-section">
+          {pinnedRoms.length === 0 ? (
+            <div className="featured-empty-banner">
+              <span className="featured-empty-icon">⭐</span>
+              <h3 className="featured-empty-title">{t("featuredEmptyTitle")}</h3>
+              <p className="featured-empty-desc">{t("featuredEmptyDesc")}</p>
+            </div>
+          ) : (
+            <>
+              <h3 className="netflix-row-title">{t("featuredTitle")}</h3>
+              <div className="jam-featured-grid">
+                {roms.filter(r => pinnedRoms.includes(r.file) && (catalogConsole === "all" || r.game === catalogConsole)).map((rom) => {
+                  const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
+                  const bgColors: Record<string, string> = {
+                    nes: "linear-gradient(135deg, #a55eea, #0f172a)",
+                    snes: "linear-gradient(135deg, #8b5cf6, #0f172a)",
+                    ps1: "linear-gradient(135deg, #00a8ff, #0f172a)",
+                  };
+                  return (
+                    <div
+                      key={rom.file}
+                      className="jam-featured-card"
+                      onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
+                    >
+                      <div className="jam-featured-banner">
+                        <div className="jam-featured-banner-bg" style={{ background: bgColors[rom.game] ?? bgColors.ps1 }} />
+                        <div className="jam-featured-overlay" />
+                        <button
+                          className="pin-btn pinned featured-pin"
+                          title="Desfijar de Destacados"
+                          onClick={(e) => togglePinRom(rom.file, e)}
+                        >
+                          ⭐
+                        </button>
+                        {roomsForGame.length > 0 && (
+                          <span className="jam-player-badge"><span className="live-pulse" /> {roomsForGame.length} {t("playing")}</span>
+                        )}
+                        <div className="jam-featured-content">
+                          <h3 className="jam-featured-title">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</h3>
+                          <p className="jam-featured-desc">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Netflix Row 2: Consolas y Emuladores 🕹️ */}
+        <div className="netflix-row">
+          <h3 className="netflix-row-title">Categorías por Consola 🕹️</h3>
+          <div className="jam-consoles-grid">
+            {JAM_CONSOLES.map((c) => {
+              const ConsoleIcon = c.icon;
+              const isSelected = catalogConsole === c.id;
+              return (
+                <div
+                  key={c.id}
+                  className={`jam-console-card${isSelected ? " selected" : ""}`}
+                  style={{ background: c.bg, opacity: c.active ? 1 : 0.55 }}
+                  onClick={() => {
+                    playClickSound();
+                    if (c.active) setCatalogConsole(isSelected ? "all" : c.id);
+                  }}
+                >
+                  <span className="jam-console-title">{c.name}</span>
+                  <div className="jam-console-icon">
+                    <ConsoleIcon />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Netflix Row 3: Super Nintendo (SNES) */}
+        {(catalogConsole === "all" || catalogConsole === "snes") && roms.some(r => r.game === "snes") && (
+          <div className="netflix-row">
+            <h3 className="netflix-row-title">Juegos de Super Nintendo (SNES) 💜</h3>
+            <div className="netflix-row-scroll">
+              {roms.filter(r => r.game === "snes").map((rom) => {
+                const isPinned = pinnedRoms.includes(rom.file);
+                const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
+                return (
+                  <div
+                    key={rom.file}
+                    className="netflix-card"
+                    onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
+                  >
+                    <div className="netflix-card-cover console-snes" />
+                    <button
+                      className={`pin-btn${isPinned ? " pinned" : ""}`}
+                      title={isPinned ? "Desfijar de Mis Pines" : "Fijar a Mis Pines"}
+                      onClick={(e) => togglePinRom(rom.file, e)}
+                    >
+                      📌
+                    </button>
+                    {roomsForGame.length > 0 && (
+                      <span className="poster-live-badge"><span className="live-pulse" /> {roomsForGame.length}</span>
+                    )}
+                    <div className="netflix-card-overlay">
+                      <h4 className="netflix-card-title">{rom.file.replace(/\.(nes|sfc|smc)$/i, "")}</h4>
+                      <p className="netflix-card-sub">SNES · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Netflix Row 4: PlayStation 1 (PS1) */}
+        {(catalogConsole === "all" || catalogConsole === "ps1") && roms.some(r => r.game === "ps1") && (
+          <div className="netflix-row">
+            <h3 className="netflix-row-title">Juegos de PlayStation 1 (PS1) 🟦</h3>
+            <div className="netflix-row-scroll">
+              {roms.filter(r => r.game === "ps1").map((rom) => {
+                const isPinned = pinnedRoms.includes(rom.file);
+                const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
+                return (
+                  <div
+                    key={rom.file}
+                    className="netflix-card"
+                    onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
+                  >
+                    <div className="netflix-card-cover console-ps1" />
+                    <button
+                      className={`pin-btn${isPinned ? " pinned" : ""}`}
+                      title={isPinned ? "Desfijar de Mis Pines" : "Fijar a Mis Pines"}
+                      onClick={(e) => togglePinRom(rom.file, e)}
+                    >
+                      📌
+                    </button>
+                    {roomsForGame.length > 0 && (
+                      <span className="poster-live-badge"><span className="live-pulse" /> {roomsForGame.length}</span>
+                    )}
+                    <div className="netflix-card-overlay">
+                      <h4 className="netflix-card-title">{rom.file.replace(/\.(bin|iso|img|pbp|chd)$/i, "")}</h4>
+                      <p className="netflix-card-sub">PS1 · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Netflix Row 5: NES 8-Bit */}
+        {(catalogConsole === "all" || catalogConsole === "nes") && roms.some(r => r.game === "nes") && (
+          <div className="netflix-row">
+            <h3 className="netflix-row-title">Juegos de NES 8-Bit (NES) 🟥</h3>
+            <div className="netflix-row-scroll">
+              {roms.filter(r => r.game === "nes").map((rom) => {
+                const isPinned = pinnedRoms.includes(rom.file);
+                const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
+                return (
+                  <div
+                    key={rom.file}
+                    className="netflix-card"
+                    onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
+                  >
+                    <div className="netflix-card-cover console-nes" />
+                    <button
+                      className={`pin-btn${isPinned ? " pinned" : ""}`}
+                      title={isPinned ? "Desfijar de Mis Pines" : "Fijar a Mis Pines"}
+                      onClick={(e) => togglePinRom(rom.file, e)}
+                    >
+                      📌
+                    </button>
+                    {roomsForGame.length > 0 && (
+                      <span className="poster-live-badge"><span className="live-pulse" /> {roomsForGame.length}</span>
+                    )}
+                    <div className="netflix-card-overlay">
+                      <h4 className="netflix-card-title">{rom.file.replace(/\.nes$/i, "")}</h4>
+                      <p className="netflix-card-sub">NES · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Netflix Row 6: Toda Tu Biblioteca de ROMs */}
+        <div className="netflix-row">
+          <h3 className="netflix-row-title">Tus ROMs Cargadas 🎮</h3>
+          {roms.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-glyph">▢</div>
+              <p>{t("noRomsUploaded")}</p>
+              <span>{t("uploadFromPanel")}</span>
+            </div>
+          ) : (() => {
+            const search = catalogSearch.trim().toLowerCase();
+            const visible = roms.filter((rom) =>
+              (catalogConsole === "all" || rom.game === catalogConsole) &&
+              (!search || rom.file.toLowerCase().includes(search) || search.startsWith("#")));
+            if (visible.length === 0) {
+              return <div className="empty-state"><div className="empty-glyph">▢</div><p>{t("noResults")}</p></div>;
+            }
+            return (
+              <div className="netflix-row-scroll">
+                {visible.map((rom) => {
+                  const isPinned = pinnedRoms.includes(rom.file);
+                  const roomsForGame = activeRooms.filter((r) => r.file === rom.file && r.visibility !== "private");
+                  return (
+                    <div
+                      key={rom.file}
+                      role="button"
+                      tabIndex={0}
+                      className="netflix-card"
+                      onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
+                    >
+                      <div className={`netflix-card-cover console-${rom.game}`} />
+                      <button
+                        className={`pin-btn${isPinned ? " pinned" : ""}`}
+                        title={isPinned ? "Desfijar de Mis Pines" : "Fijar a Mis Pines"}
+                        onClick={(e) => togglePinRom(rom.file, e)}
+                      >
+                        📌
+                      </button>
+                      {roomsForGame.length > 0 && (
+                        <span className="poster-live-badge"><span className="live-pulse" /> {roomsForGame.length}</span>
+                      )}
+                      <div className="netflix-card-overlay">
+                        {rom.owner === authUsername && (
+                          <>
+                            <button
+                              className="game-card-delete"
+                              aria-label={t("shareRom")}
+                              title={t("shareRom")}
+                              onClick={(event) => { event.stopPropagation(); setShareModalRom(rom); }}
+                              style={{ right: 36 }}
+                            >
+                              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></svg>
+                            </button>
+                            <button
+                              className="game-card-delete"
+                              aria-label={t("deleteRom")}
+                              onClick={(event) => { event.stopPropagation(); void deleteRom(rom.file); }}
+                            >
+                              <IconClose />
+                            </button>
+                          </>
+                        )}
+                        <h4 className="netflix-card-title">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</h4>
+                        <p className="netflix-card-sub">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Shared ROMs */}
+        <div className="jam-section">
+          <h3 className="netflix-row-title">🤝 {t("sharedWithMe")}</h3>
+          {sharedRoms.filter((s) => s.friend === authUsername && s.rom).length === 0 ? (
+            <div className="featured-empty-banner">
+              <span className="featured-empty-icon">📭</span>
+              <h3 className="featured-empty-title">{t("noSharedRoms")}</h3>
+            </div>
+          ) : (
+            <div className="jam-featured-grid">
+              {sharedRoms.filter((s) => s.friend === authUsername && s.rom).map((s) => {
+                const rom = s.rom!;
+                return (
+                  <div
+                    key={`${s.owner}-${s.rom_file}`}
+                    className="jam-featured-card"
+                    onClick={() => { playClickSound(); setSelectedRom(rom.file); setGameModalRom(rom); }}
+                  >
+                    <div className="jam-featured-banner">
+                      <div className="jam-featured-banner-bg" style={{ background: CONSOLES.find(c => c.id === rom.game)?.gradient ?? "linear-gradient(135deg, #8b5cf6, #0f172a)" }} />
+                      <div className="jam-featured-overlay" />
+                    </div>
+                    <div className="jam-featured-content">
+                      <h4 className="jam-featured-title">{rom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</h4>
+                      <p className="jam-featured-sub">{rom.game.toUpperCase()} · {(rom.size / 1024 / 1024).toFixed(1)} MB</p>
+                      <p className="jam-featured-sub" style={{ marginTop: 2, color: "var(--emerald)" }}>👤 {t("sharedRomFrom")} {s.owner}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Upload ROM Button */}
+        <div className="lobby-card catalog-upload-card">
+          <button className="upload-rom-btn" onClick={() => setUploadModalOpen(true)}>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+            <span>{t("uploadRom")}</span>
+          </button>
+        </div>
+
+        {ps1BiosReady === false && (
+          <div className="lobby-card catalog-upload-card">
+            <p className="form-label">{t("uploadBios")}</p>
+            <span className="lobby-card-hint">{t("uploadBiosHint")}</span>
+            <label className="upload-drop">
+              <input
+                type="file"
+                accept=".bin"
+                disabled={biosUploading || !authToken}
+                onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadBios(file); event.target.value = ""; }}
+                aria-label={t("uploadBios")}
+              />
+              <span>{biosUploading ? t("uploading") : t("chooseFileDrop")}</span>
+            </label>
+            {biosError && <p className="form-error">{biosError}</p>}
+          </div>
+        )}
+      </section>
+    )}
+
+    {inLobby && lobbyView === "profile" && (
+      <section className="lobby">
+        <div className="lobby-head">
+          <div>
+            <h2>{t("profileTitle")}</h2>
+            <p className="lobby-sub">{t("profileSub")}</p>
+          </div>
+        </div>
+
+        <div className="profile-grid">
+          <div className="lobby-card profile-card">
+            <div className="profile-card-avatar-row">
+              <span className="roster-avatar profile-avatar">{(authUsername ?? "?").slice(0, 1).toUpperCase()}</span>
+              <div>
+                <p className="profile-username">{authUsername}</p>
+                <p className="lobby-card-hint" style={{ margin: 0 }}>{t("memberSince")}</p>
+              </div>
+            </div>
+            <p className="form-label" style={{ marginTop: 8 }}>{t("email")}</p>
+            <p className="account-popover-email">
+              {profileEmail ?? t("noEmailSet")}
+              <button className="link-button" onClick={() => { setEmailInput(profileEmail ?? ""); setEmailPromptOpen(true); }}>{t("edit")}</button>
+            </p>
+          </div>
+
+          <div className="lobby-card profile-card">
+            <p className="form-label">{t("plan")}</p>
+            <div className="profile-plan-row">
+              <div>
+                <p className="profile-plan-name">{t("freePlan")}</p>
+                <span className="lobby-card-hint">{t("planHint")}</span>
+              </div>
+              <span className="soon-badge">{t("comingSoon")}</span>
+            </div>
+          </div>
+
+          <div className="lobby-card profile-card">
+            <p className="form-label">{t("friends")} · {friends.friends.length}</p>
+            {friends.incoming.length > 0 && (
+              <ul className="friend-list">
+                {friends.incoming.map((name) => (
+                  <li key={name} className="friend-row">
+                    <span className="roster-avatar small">{name.slice(0, 1).toUpperCase()}</span>
+                    <span className="friend-name">{name}</span>
+                    <button className="btn-primary friend-accept" onClick={() => respondFriendRequest(name, true)}>{t("accept")}</button>
+                    <button className="link-button" onClick={() => respondFriendRequest(name, false)}>{t("decline")}</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {friends.friends.length > 0 && (
+              <ul className="friend-list">
+                {friends.friends.map((name) => (
+                  <li key={name} className="friend-row">
+                    <span className="roster-avatar small">{name.slice(0, 1).toUpperCase()}</span>
+                    <span className="friend-name">{name}</span>
+                    <button className="link-button" onClick={() => removeFriend(name)}>{t("remove")}</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {friends.friends.length === 0 && friends.incoming.length === 0 && (
+              <p className="lobby-card-hint">{t("noFriendsYet")}</p>
+            )}
+            <div className="form-row" style={{ marginTop: 8 }}>
+              <input
+                className="field"
+                value={addFriendInput}
+                onChange={(event) => setAddFriendInput(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") sendFriendRequest(); }}
+                placeholder={t("addFriendPlaceholder")}
+                aria-label={t("addFriendPlaceholder")}
+              />
+              <button className="btn-ghost" onClick={sendFriendRequest} disabled={!addFriendInput.trim()}>{t("add")}</button>
+            </div>
+            {friendError && <p className="form-error">{friendError}</p>}
+          </div>
+
+          <div className="lobby-card profile-card">
+            <p className="form-label">{t("language")}</p>
+            <LangToggle lang={lang} setLang={setLang} />
+          </div>
+        </div>
+      </section>
+    )}
+
+    {inLobby && lobbyView === "social" && (
+      <section className="lobby social-lobby">
+        <div className="social-shell">
+          {/* ── Left Panel: Tabs + List ── */}
+          <div className={`social-sidebar ${dmPeer ? "has-dm" : ""}`}>
+            <div className="social-sidebar-head">
+              <h2>{t("socialTitle")}</h2>
+              <div className="social-inbox-tabs">
+                <button className={`social-tab ${socialTab === "inbox" ? "active" : ""}`} onClick={() => { setSocialTab("inbox"); setDmPeer(null); }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
+                  {t("inbox")}
+                  {unreadCount > 0 && <span className="social-tab-badge">{unreadCount}</span>}
+                </button>
+                <button className={`social-tab ${socialTab === "friends" ? "active" : ""}`} onClick={() => { setSocialTab("friends"); setDmPeer(null); }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                  {t("friends")}
+                </button>
+                <button className={`social-tab ${socialTab === "requests" ? "active" : ""}`} onClick={() => { setSocialTab("requests"); setDmPeer(null); }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="8.5" cy="7" r="4" /><line x1="20" y1="8" x2="20" y2="14" /><line x1="23" y1="11" x2="17" y2="11" /></svg>
+                  {t("requests")}
+                  {friends.incoming.length > 0 && <span className="social-tab-badge">{friends.incoming.length}</span>}
+                </button>
+              </div>
+            </div>
+
+            <div className="social-sidebar-body">
+              {/* Inbox Tab */}
+              {socialTab === "inbox" && (
+                <div className="inbox-list">
+                  <div className="inbox-toolbar">
+                    <button className="btn-ghost" onClick={() => void refreshInbox()}><IconRefresh /></button>
+                  </div>
+                  {inbox.length === 0 ? (
+                    <div className="inbox-empty">
+                      <span className="inbox-empty-icon">📭</span>
+                      <p className="inbox-empty-title">{t("noMessages")}</p>
+                      <p className="inbox-empty-sub">{t("startFromFriends")}</p>
+                    </div>
+                  ) : (
+                    <ul className="inbox-conversations">
+                      {inbox.map((conv) => {
+                        const friendRoom = activeRooms.find((r) => r.owner === conv.peer && r.visibility !== "private");
+                        const isOnline = !!friendRoom;
+                        return (
+                          <li key={conv.peer} className={`inbox-row ${dmPeer === conv.peer ? "active" : ""} ${conv.unread > 0 ? "unread" : ""}`} onClick={() => openDM(conv.peer)}>
+                            <span className={`roster-avatar ${isOnline ? "online" : ""}`}>{conv.peer.slice(0, 1).toUpperCase()}</span>
+                            <div className="inbox-row-content">
+                              <div className="inbox-row-top">
+                                <span className="inbox-row-name">{conv.peer}</span>
+                                <span className="inbox-row-time">{formatTimeAgo(conv.lastTime)}</span>
+                              </div>
+                              <p className="inbox-row-preview">{conv.lastMessage}</p>
+                            </div>
+                            {conv.unread > 0 && <span className="inbox-unread-badge">{conv.unread}</span>}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {/* Friends Tab */}
+              {socialTab === "friends" && (
+                <div className="social-section">
+                  <div className="inbox-toolbar">
+                    <div className="add-friend-inline">
+                      <input
+                        className="field add-friend-input"
+                        value={addFriendInput}
+                        onChange={(e) => setAddFriendInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") sendFriendRequest(); }}
+                        placeholder={t("addFriendPlaceholder")}
+                      />
+                      <button className="btn-primary btn-sm" onClick={sendFriendRequest} disabled={!addFriendInput.trim()}>{t("add")}</button>
+                    </div>
+                    <button className="btn-ghost" onClick={() => void refreshFriends()}><IconRefresh /></button>
+                  </div>
+                  {friendError && <p className="form-error">{friendError}</p>}
+                  {friends.friends.length === 0 ? (
+                    <div className="inbox-empty">
+                      <span className="inbox-empty-icon">👥</span>
+                      <p className="inbox-empty-title">{t("noFriendsYet")}</p>
+                    </div>
+                  ) : (
+                    <ul className="friend-list-full">
+                      {friends.friends.map((name) => {
+                        const friendRoom = activeRooms.find((r) => r.owner === name && r.visibility !== "private");
+                        const isOnline = !!friendRoom;
+                        return (
+                          <li key={name} className="friend-list-row">
+                            <span className={`roster-avatar ${isOnline ? "online" : ""}`}>{name.slice(0, 1).toUpperCase()}</span>
+                            <div className="friend-list-info">
+                              <span className="friend-list-name">{name}</span>
+                              {isOnline ? (
+                                <span className="friend-list-status online">{t("playing")}</span>
+                              ) : (
+                                <span className="friend-list-status">{t("offline")}</span>
+                              )}
+                            </div>
+                            <div className="friend-list-actions">
+                              <button className="icon-button-sm" onClick={() => openDM(name)} title={t("message")}>
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                              </button>
+                              {isOnline && friendRoom && (
+                                <button className="btn-primary btn-xs" onClick={() => connect(friendRoom.room, friendRoom.owner, friendRoom.game)}>
+                                  {t("join")}
+                                </button>
+                              )}
+                              <button className="icon-button-sm danger" onClick={() => removeFriend(name)} title={t("remove")}>
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                              </button>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {/* Requests Tab */}
+              {socialTab === "requests" && (
+                <div className="social-section">
+                  {friends.incoming.length === 0 ? (
+                    <div className="inbox-empty">
+                      <span className="inbox-empty-icon">✨</span>
+                      <p className="inbox-empty-title">{t("noPendingRequests")}</p>
+                    </div>
+                  ) : (
+                    <ul className="friend-list-full">
+                      {friends.incoming.map((name) => (
+                        <li key={name} className="friend-list-row">
+                          <span className="roster-avatar">{name.slice(0, 1).toUpperCase()}</span>
+                          <div className="friend-list-info">
+                            <span className="friend-list-name">{name}</span>
+                            <span className="friend-list-status">{t("wantsToBeFriends")}</span>
+                          </div>
+                          <div className="friend-list-actions">
+                            <button className="btn-primary btn-xs" onClick={() => respondFriendRequest(name, true)}>{t("accept")}</button>
+                            <button className="btn-ghost btn-xs" onClick={() => respondFriendRequest(name, false)}>{t("decline")}</button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Right Panel: DM Chat ── */}
+          <div className={`social-main ${dmPeer ? "open" : ""}`}>
+            {dmPeer ? (
+              <div className="dm-view">
+                <div className="dm-header">
+                  <button className="dm-back" onClick={() => { setDmPeer(null); refreshInbox(); }}>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+                  </button>
+                  <span className="roster-avatar small online">{dmPeer.slice(0, 1).toUpperCase()}</span>
+                  <div className="dm-header-info">
+                    <span className="dm-peer-name">{dmPeer}</span>
+                    {activeRooms.find((r) => r.owner === dmPeer) && <span className="dm-peer-status">{t("playing")}</span>}
+                  </div>
+                </div>
+                <div className="dm-messages">
+                  {dmLoading && <div className="dm-loading">{t("loading")}</div>}
+                  {!dmLoading && dmMessages.length === 0 && (
+                    <div className="dm-empty">
+                      <span className="dm-empty-icon">💬</span>
+                      <p>{t("startConversation")}</p>
+                    </div>
+                  )}
+                  {dmMessages.map((msg) => (
+                    <div key={msg.id} className={`dm-bubble ${msg.sender === authUsername ? "mine" : "theirs"}`}>
+                      <p className="dm-text">{msg.body}</p>
+                      <span className="dm-time">{new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                  ))}
+                  <div ref={dmEndRef} />
+                </div>
+                <div className="dm-input-bar">
+                  <input
+                    className="dm-input"
+                    value={dmInput}
+                    onChange={(e) => setDmInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendDM(); } }}
+                    placeholder={t("typeMessage")}
+                  />
+                  <button className="dm-send" onClick={sendDM} disabled={!dmInput.trim()}>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="social-main-empty">
+                <span className="social-main-empty-icon">💬</span>
+                <p className="social-main-empty-title">{t("selectConversation")}</p>
+                <p className="social-main-empty-sub">{t("selectConversationHint")}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    )}
+
+    {inLobby && shareModalRom && (
+      <div className="settings-backdrop email-backdrop" onClick={() => setShareModalRom(null)}>
+        <div className="email-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
+          <div className="email-dialog-icon">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></svg>
+          </div>
+          <h2 className="email-dialog-title">{t("shareRom")}</h2>
+          <p className="email-dialog-sub">{shareModalRom.file}</p>
+          {friends.friends.length === 0 ? (
+            <p className="email-dialog-sub">{t("noFriendsYet")}</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+              {friends.friends.map((friend) => {
+                const isShared = sharedRoms.some((s) => s.owner === authUsername && s.friend === friend && s.rom_file === shareModalRom.file);
+                return (
+                  <div key={friend} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "rgba(255,255,255,.04)", borderRadius: 10, border: "1px solid rgba(255,255,255,.06)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span className="roster-avatar small">{friend.slice(0, 1).toUpperCase()}</span>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: "var(--paper)" }}>{friend}</span>
+                    </div>
+                    <button
+                      className={isShared ? "btn-danger" : "btn-primary"}
+                      style={{ padding: "6px 14px", fontSize: 12, borderRadius: 8 }}
+                      onClick={() => isShared ? void unshareRom(friend, shareModalRom.file) : void shareRom(friend, shareModalRom.file)}
+                    >
+                      {isShared ? t("unshareRom") : t("shareRom")}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <button className="email-skip-btn" onClick={() => setShareModalRom(null)} style={{ marginTop: 12 }}>{t("cancel")}</button>
+        </div>
+      </div>
+    )}
+
+    {inLobby && gameModalRom && (
+      <div className="settings-backdrop game-modal-backdrop" onClick={() => setGameModalRom(null)}>
+        <div className="game-modal" onClick={(event) => event.stopPropagation()}>
+          <div className={`game-modal-hero console-${gameModalRom.game}`}>
+            <button className="icon-button game-modal-close" aria-label="Close" onClick={() => setGameModalRom(null)}><IconClose /></button>
+            <span className="game-modal-glyph">{gameModalRom.game === "nes" ? "▮▮" : gameModalRom.game === "snes" ? "▮▮▮" : "◉"}</span>
+            <h2 className="game-modal-title">{gameModalRom.file.replace(/\.(nes|sfc|smc|bin|iso|img|pbp|chd)$/i, "")}</h2>
+            <span className="poster-tag game-modal-tag">{gameModalRom.game.toUpperCase()}</span>
+          </div>
+
+          <div className="game-modal-body">
+            <div className="visibility-toggle" role="group" aria-label={t("visibility")}>
+              <button className={newRoomVisibility === "public" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("public")}><IconGlobe /> {t("public")}</button>
+              <button className={newRoomVisibility === "private" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomVisibility("private")}><IconLock /> {t("private")}</button>
+            </div>
+            <button className="btn-diagnostic" disabled={diagRunning} onClick={() => void runNetworkDiagnostic()}>
+              {diagRunning ? t("diagnosticRunning") : t("runDiagnostic")}
+            </button>
+            {diagResult && (
+              <div className={`diagnostic-result diagnostic-${diagResult.rating}`}>
+                <div className="diagnostic-stats">
+                  <span>RTT {diagResult.rtt >= 0 ? `${diagResult.rtt} ms` : "—"}</span>
+                  <span> jitter {diagResult.jitter >= 0 ? `${diagResult.jitter} ms` : "—"}</span>
+                </div>
+                <p className="diagnostic-msg">{t(`diagnostic${diagResult.rating.charAt(0).toUpperCase() + diagResult.rating.slice(1)}` as any)}</p>
+              </div>
+            )}
+            <p className="form-label" style={{ marginTop: 4 }}>{t("connectionQuality")}</p>
+            <div className="visibility-toggle" role="group" aria-label={t("connectionQuality")}>
+              <button className={newRoomBandwidth === "high" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomBandwidth("high")}>{t("bandwidthHigh")}</button>
+              <button className={newRoomBandwidth === "medium" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomBandwidth("medium")}>{t("bandwidthMedium")}</button>
+              <button className={newRoomBandwidth === "low" ? "visibility-option active" : "visibility-option"} onClick={() => setNewRoomBandwidth("low")}>{t("bandwidthLow")}</button>
+            </div>
+            <span className="lobby-card-hint">{t("bandwidthHint")}</span>
+            <button
+              className="btn-primary game-modal-create"
+              onClick={() => { setSelectedRom(gameModalRom.file); void createRoom(gameModalRom.file); }}
+              disabled={creating}
+            >
+              {creating ? t("starting") : t("createNewRoom")}
+            </button>
+            {createError && <p className="form-error">{createError}</p>}
+
+            <div className="game-modal-rooms-head">
+              <p className="form-label showcase-label">{t("publicRooms")}</p>
+              <button className="icon-button game-modal-refresh" aria-label={t("refresh")} onClick={() => void refreshRooms()}><IconRefresh /></button>
+            </div>
+
+            {(() => {
+              const rooms = activeRooms.filter((r) => r.file === gameModalRom.file && r.visibility !== "private");
+              if (rooms.length === 0) {
+                return <p className="lobby-card-hint game-modal-empty">{t("noPublicRoomsForGame")}</p>;
+              }
+              return (
+                <ul className="room-list">
+                  {rooms.map((entry) => (
+                    <li key={entry.room} className="room-row" role="button" tabIndex={0} onClick={() => { setGameModalRom(null); void connect(entry.room, entry.owner, entry.game); }}>
+                      <span className="live-pulse" />
+                      <span className="roster-avatar small">{(entry.owner ?? "?").slice(0, 1).toUpperCase()}</span>
+                      <span className="room-row-info">
+                        <span className="room-row-title">{entry.room}</span>
+                        <span className="room-row-sub">{entry.owner ? `${t("hostedBy")} ${entry.owner}` : t("unowned")} · {entry.peerCount} {t("playersCount")}</span>
+                      </span>
+                      <button className="icon-button room-share-btn" aria-label={t("shareRoomLink")} title={t("shareRoomLink")} onClick={(e) => { e.stopPropagation(); openShareDialog(entry.room); }}>
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                      </button>
+                      <span className="room-row-cta">{t("joinRoom")}</span>
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}
+          </div>
+        </div>
+      </div>
+    )}
+
+    {inLobby && uploadModalOpen && (
+      <div className="settings-backdrop game-modal-backdrop" onClick={() => { setUploadModalOpen(false); setUploadCustomName(""); setUploadError(""); }}>
+        <div className="game-modal upload-modal" onClick={(event) => event.stopPropagation()}>
+          <div className="game-modal-hero upload-modal-hero">
+            <button className="icon-button game-modal-close" aria-label="Close" onClick={() => { setUploadModalOpen(false); setUploadCustomName(""); setUploadError(""); }}><IconClose /></button>
+            <span className="game-modal-glyph">📤</span>
+            <h2 className="game-modal-title">{t("uploadRom")}</h2>
+          </div>
+
+          <div className="game-modal-body">
+            <div className="upload-modal-info">
+              <p className="form-label">{t("uploadFormats")}</p>
+              <div className="upload-modal-consoles">
+                <div className="upload-console-chip"><span className="chip-label">NES</span><span className="chip-formats">.nes (max 8 MB)</span></div>
+                <div className="upload-console-chip"><span className="chip-label">SNES</span><span className="chip-formats">.sfc, .smc (max 8 MB)</span></div>
+                <div className="upload-console-chip"><span className="chip-label">PS1</span><span className="chip-formats">.bin, .iso, .img, .pbp, .chd (max 2 GB)</span></div>
+                <div className="upload-console-chip"><span className="chip-label">ZIP</span><span className="chip-formats">.zip — archivo comprimido con ROM (max 2 GB)</span></div>
+              </div>
+            </div>
+
+            <div className="upload-modal-name">
+              <label className="form-label" htmlFor="rom-custom-name">{t("customName")}</label>
+              <input
+                id="rom-custom-name"
+                className="field"
+                value={uploadCustomName}
+                onChange={(e) => setUploadCustomName(e.target.value)}
+                placeholder={t("customNamePlaceholder")}
+                aria-label={t("customName")}
+              />
+            </div>
+
+            <label
+              className={`upload-drop upload-modal-drop${dragActive ? " drag-active" : ""}${uploading ? " uploading" : ""}${uploadDone ? " upload-done" : ""}`}
+              onDragOver={(event) => { event.preventDefault(); if (!uploading) setDragActive(true); }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDragActive(false);
+                const file = event.dataTransfer.files?.[0];
+                if (file && !uploading) void uploadRom(file);
+              }}
+            >
+              <input
+                type="file"
+                accept=".nes,.sfc,.smc,.bin,.iso,.img,.pbp,.chd"
+                disabled={uploading || !authToken}
+                onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadRom(file); event.target.value = ""; }}
+                aria-label={t("uploadRom")}
+              />
+              {uploading ? (
+                <div className="upload-progress">
+                  <div className="upload-progress-track"><div className="upload-progress-fill" style={{ width: `${uploadProgress}%` }} /></div>
+                  <span className="upload-progress-pct">{uploadProgress}%</span>
+                </div>
+              ) : (
+                <span>{uploadDone ? `✓ ${t("uploadDone")}` : t("chooseFileDrop")}</span>
+              )}
+            </label>
+            {uploadError && <p className="form-error">{uploadError}</p>}
+          </div>
+        </div>
+      </div>
+    )}
+
+    {!inLobby && <>
+      <div className="room-layout">
+        <div className={`${isFullscreen ? "player-stage pseudo-fullscreen" : "player-stage"} ${!hudVisible ? "hud-hidden" : ""}`} ref={stageWrapRef} onClick={() => { if (isTouchDevice) flashHud(); }}>
+          <div className={`player-topbar overlay-bar ${!hudVisible ? "hud-hidden" : ""}`}>
+            <div className="brand brand-mini"><span className="brand-mark">◆</span><span className="brand-name">retro<em>X</em></span></div>
+            <div className="latency-wrap">
+              <button
+                className={`latency-pill ${status.includes("Connected") ? (rttMs === null ? "pending" : rttMs < 50 ? "excellent" : rttMs < 100 ? "good" : rttMs < 150 ? "ok" : "bad") : "down"}`}
+                onClick={() => setLatencyPopoverOpen((v) => !v)}
+              >
+                <span className="latency-bars">
+                  <span /><span /><span /><span />
+                </span>
+                <span className="latency-ms">{reconnecting ? "···" : rttMs !== null ? `${rttMs}` : "—"}</span>
+                <IconSignal />
+              </button>
+              {latencyPopoverOpen && (
+                <>
+                  <div className="popover-backdrop" onClick={() => setLatencyPopoverOpen(false)} />
+                  <div className="latency-popover">
+                    <div className="latency-popover-row">
+                      <span>{t("connectionStatus")}</span>
+                      <span>{translate(lang, (statusKeys[status] as any) ?? "statusDisconnected")}</span>
+                    </div>
+                    <div className="latency-popover-row">
+                      <span>RTT</span>
+                      <span>{rttMs !== null ? `${rttMs} ms` : "—"}</span>
+                    </div>
+                    <div className="latency-popover-row">
+                      <span>{t("latency")} est.</span>
+                      <span>{rttMs !== null ? `~${Math.round(rttMs + 15)} ms` : "—"}</span>
+                    </div>
+                    <div className="latency-popover-row" style={{ opacity: .55, fontSize: "0.78em" }}>
+                      <span></span>
+                      <span style={{ textAlign: "right" }}>{rttMs !== null ? `red ${rttMs} + codec ~15` : ""}</span>
+                    </div>
+                    <div className="latency-popover-row">
+                      <span>{t("room")}</span>
+                      <span>{room}</span>
+                    </div>
+                    <div className="latency-popover-row">
+                      <span>{t("you")}</span>
+                      <span>P{playerNumber ?? 1}</span>
+                    </div>
+                    <div className="latency-popover-row">
+                      <span><IconWifi /> Input</span>
+                      <span>{inputState}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+            {playerNumber && <span className="player-pill accent"><IconUser /> P{playerNumber}</span>}
+            <button
+              className="player-pill muted room-code-pill"
+              onClick={() => {
+                void navigator.clipboard.writeText(room);
+                setRoomCopied(true);
+                playClickSound();
+                window.setTimeout(() => setRoomCopied(false), 2000);
+              }}
+              title={t("copyRoomCode")}
+            >
+              {roomCopied ? <><IconCopy /> ✓</> : <><IconCopy /> {room}</>}
+            </button>
+            <button
+              className="icon-button topbar-desktop-only"
+              aria-label={t("shareRoomLink")}
+              title={t("shareRoomLink")}
+              onClick={() => openShareDialog(room)}
+            >
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+            </button>
+            {authUsername === roomOwner && (
+              <button className="btn-danger topbar-desktop-only" onClick={closeRoom} disabled={closingRoom}>
+                {closingRoom ? t("closing") : t("closeRoom")}
+              </button>
+            )}
+            <button
+              className={`icon-button topbar-desktop-only ${crtEffect ? "active-toggle" : ""}`}
+              aria-label={t("crtEffect")}
+              title={t("crtEffect")}
+              onClick={() => { setCrtEffect((v) => !v); playClickSound(); }}
+            >
+              <IconTv active={crtEffect} />
+            </button>
+            <button className="icon-button fullscreen-toggle topbar-desktop-only" aria-label={t("fullscreen")} onClick={toggleFullscreen}>
+              <IconFullscreen active={isFullscreen} />
+            </button>
+            <button className="icon-button topbar-desktop-only" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <circle cx="12" cy="12" r="3.2" />
+                <path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.5-2.4 1a7.7 7.7 0 0 0-1.7-1L15 3h-4l-.3 2.3a7.7 7.7 0 0 0-1.7 1l-2.4-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7.7 7.7 0 0 0 1.7 1L9 21h4l.3-2.3a7.7 7.7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5Z" />
+              </svg>
+            </button>
+            {inLobby && (
+              <div className="topbar-right-group topbar-desktop-only">
+                <LangToggle lang={lang} setLang={setLang} />
+                <button
+                  className={`icon-button theme-toggle`}
+                  aria-label={theme === "dark" ? "Light theme" : "Dark theme"}
+                  title={theme === "dark" ? t("lightTheme") : t("darkTheme")}
+                  onClick={() => setTheme((v) => v === "dark" ? "light" : "dark")}
+                >
+                  {theme === "dark" ? (
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            )}
+            <div className="overflow-wrap topbar-mobile-only">
+              <button className="icon-button overflow-btn" aria-label="Menu" onClick={() => setOverflowOpen((v) => !v)}>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" />
+                </svg>
+              </button>
+              {overflowOpen && (
+                <>
+                  <div className="popover-backdrop" onClick={() => setOverflowOpen(false)} />
+                  <div className="overflow-dropdown">
+                    <button className="overflow-item" onClick={() => { setCrtEffect((v) => !v); playClickSound(); setOverflowOpen(false); }}>
+                      <IconTv active={crtEffect} /> {t("crtEffect")}
+                    </button>
+                    <button className="overflow-item" onClick={() => { toggleFullscreen(); setOverflowOpen(false); }}>
+                      <IconFullscreen active={isFullscreen} /> {t("fullscreen")}
+                    </button>
+                    <button className="overflow-item" onClick={() => { setSettingsOpen(true); setOverflowOpen(false); }}>
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="3.2" /><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.5-2.4 1a7.7 7.7 0 0 0-1.7-1L15 3h-4l-.3 2.3a7.7 7.7 0 0 0-1.7 1l-2.4-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7.7 7.7 0 0 0 1.7 1L9 21h4l.3-2.3a7.7 7.7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5Z" /></svg>
+                      {t("settings")}
+                    </button>
+                    {authUsername === roomOwner && (
+                      <button className="overflow-item danger" onClick={() => { closeRoom(); setOverflowOpen(false); }} disabled={closingRoom}>
+                        {closingRoom ? t("closing") : t("closeRoom")}
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+          <div className={`stage stage-${scale === "fit" ? "fit" : "fixed"} ${crtEffect ? "crt-active" : ""}`}>
+            <div
+              className={[
+                "stage-canvas",
+                draggingCanvas ? "dragging" : "",
+                canvasLocked ? "locked" : "",
+              ].filter(Boolean).join(" ")}
+              style={{ transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px) scale(${canvasZoom})` }}
+              onPointerDown={onCanvasPointerDown}
+              onPointerMove={onCanvasPointerMove}
+              onPointerUp={onCanvasPointerUp}
+              onPointerCancel={onCanvasPointerUp}
+            >
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                controls={false}
+                disablePictureInPicture
+                controlsList="nodownload nofullscreen noremoteplayback noplaybackrate"
+                onContextMenu={(event) => event.preventDefault()}
+                onLoadedMetadata={() => { if (videoRef.current) setIntrinsicSize({ w: videoRef.current.videoWidth, h: videoRef.current.videoHeight }); }}
+                style={{
+                  WebkitTouchCallout: "none" as any,
+                  WebkitUserSelect: "none" as any,
+                  ...(scale !== "fit" && intrinsicSize ? { width: intrinsicSize.w * Number(scale), height: "auto" } : {}),
+                }}
+              />
+            </div>
+            {mediaState !== "Receiving media" && (
+              <div className="placeholder">
+                <div className="placeholder-inner">
+                  <div className={`placeholder-spinner ${mediaState === "Game server disconnected" ? "disconnected" : ""}`}></div>
+                  <div>
+                    {translate(lang, (mediaKeys[mediaState] as any) ?? "waitingForGameServer")}
+                    {status === "Connected to signaling" && (
+                      <div className="placeholder-subtitle">{translate(lang, "waitingForGameServerStarting")}</div>
+                    )}
+                    {status === "Answer sent" && (
+                      <div className="placeholder-subtitle">{translate(lang, "waitingForGameServerStreaming")}</div>
+                    )}
+                    {statusKeys[status] && status !== "Connecting" && status !== "Disconnected" &&
+                     status !== "Connected to signaling" && status !== "Answer sent" && status !== mediaState && (
+                      <div className="placeholder-subtitle">{translate(lang, statusKeys[status] as any)}</div>
+                    )}
+                    {!statusKeys[status] && status !== "Connecting" && status !== "Disconnected" &&
+                     status !== "Connected to signaling" && status !== "Answer sent" && (
+                      <div className="placeholder-subtitle">{status}</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+            {canvasHintVisible && !canvasLocked && mediaState === "Receiving media" && (
+              <div className="canvas-hint">
+                <IconMove /> {t("canvasDragHint")}
+              </div>
+            )}
+            {canvasToast && <div className="canvas-toast">{canvasToast}</div>}
+          </div>
+          <TouchControls sendInput={sendInput} layout={touchLayout} size={touchSize} consoleId={activeConsole} customPositions={customPositions} ps1ControlMode={ps1ControlMode} />
+          {editingControls && (
+            <ControlEditor
+              consoleId={activeConsole}
+              customPositions={customPositions}
+              onPositionsChange={setCustomPositions}
+              onClose={() => setEditingControls(false)}
+              t={t}
+              ps1ControlMode={ps1ControlMode}
+            />
+          )}
+          <button className="mobile-panel-fab" onClick={(e) => { e.stopPropagation(); setMobilePanelOpen(true); }} aria-label={t("players")}>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" />
+            </svg>
+            {(roster.length > 0 || chatMessages.length > 0) && <span className="fab-badge" />}
+          </button>
+        </div>
+
+        {mobilePanelOpen && <div className="popover-backdrop mobile-panel-backdrop" onClick={() => setMobilePanelOpen(false)} />}
+        <aside className={mobilePanelOpen ? "social-panel mobile-open" : "social-panel"}>
+          <button className="mobile-panel-close" onClick={() => setMobilePanelOpen(false)} aria-label="Close"><IconClose /></button>
+          <div className="social-block">
+            <p className="form-label">{t("players")} · {1 + roster.length}</p>
+            <ul className="roster-list">
+              <li className="roster-row">
+                <span className="roster-avatar">{(authUsername ?? "?").slice(0, 1).toUpperCase()}</span>
+                <span className="roster-name">{authUsername} <span className="roster-you">({t("you")})</span></span>
+                <span className="roster-tag">P{playerNumber ?? 1}</span>
+                {authUsername === roomOwner && <span className="host-badge" title={t("host")}><IconCrown /></span>}
+              </li>
+              {roster.map((entry) => (
+                <li key={entry.peerId} className="roster-row">
+                  <span className="roster-avatar">{entry.username.slice(0, 1).toUpperCase()}</span>
+                  <span className="roster-name">{entry.username}</span>
+                  <span className="roster-tag">P{entry.playerNumber}</span>
+                  {entry.username === roomOwner ? (
+                    <span className="host-badge" title={t("host")}><IconCrown /></span>
+                  ) : authUsername === roomOwner ? (
+                    <button className="roster-make-host" onClick={() => transferHost(entry.peerId)} title={t("makeHost")}>{t("makeHost")}</button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="social-block chat-block">
+            <p className="form-label">{t("chat")}</p>
+            <div className="chat-log">
+              {chatMessages.length === 0 && <p className="chat-empty">{t("sayHi")}</p>}
+              {chatMessages.map((message, index) => (
+                <div key={index} className="chat-message">
+                  <span className="chat-author">{message.playerNumber ? `P${message.playerNumber} ` : ""}{message.username}</span>
+                  <span className="chat-text">{message.text}</span>
+                </div>
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+            <div className="chat-reactions-row">
+              {["👏", "🔥", "👾", "🕹️", "🎮", "🏆", "😂"].map((emoji) => (
+                <button
+                  key={emoji}
+                  className="quick-reaction-btn"
+                  onClick={() => {
+                    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+                    socketRef.current.send(JSON.stringify({ type: "chat", room, payload: { text: emoji } }));
+                    playChatSound();
+                  }}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+            <div className="chat-input-row">
+              <input
+                className="field"
+                value={chatInput}
+                onChange={(event) => setChatInput(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") sendChat(); }}
+                placeholder={t("messagePlaceholder")}
+                aria-label={t("chat")}
+              />
+              <button className="btn-ghost" onClick={sendChat} disabled={!chatInput.trim()}>{t("send")}</button>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      {settingsOpen && (
+        <div className="settings-backdrop" onClick={() => setSettingsOpen(false)}>
+          <div className="settings-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="settings-head">
+              <h2>{t("settings")}</h2>
+              <button className="icon-button" aria-label="Close" onClick={() => setSettingsOpen(false)}><IconClose /></button>
+            </div>
+            <div className="settings-tabs">
+              <button className={settingsTab === "display" ? "tab active" : "tab"} onClick={() => setSettingsTab("display")}>{t("display")}</button>
+              <button className={settingsTab === "audio" ? "tab active" : "tab"} onClick={() => setSettingsTab("audio")}>{t("audio")}</button>
+              <button className={settingsTab === "controls" ? "tab active" : "tab"} onClick={() => setSettingsTab("controls")}>{isTouchDevice ? t("layout") : t("controls")}</button>
+            </div>
+            <div className="settings-body">
+
+            {settingsTab === "display" && (
+              <>
+                <div className="settings-section">
+                  <div className="settings-section-head">
+                    <div className="settings-section-icon">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
+                    </div>
+                    <span className="settings-section-title">{t("fieldOfView")}</span>
+                  </div>
+                  <div className="scale-options">
+                    {[["fit", t("fitScreen")], ["1", intrinsicSize ? `${intrinsicSize.w}×${intrinsicSize.h}` : "1×"],
+                      ["2", intrinsicSize ? `${intrinsicSize.w * 2}×${intrinsicSize.h * 2}` : "2×"],
+                      ["3", intrinsicSize ? `${intrinsicSize.w * 3}×${intrinsicSize.h * 3}` : "3×"]].map(([value, label]) => (
+                      <button key={value} className={scale === value ? "scale-option active" : "scale-option"} onClick={() => setScale(value)}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="settings-section">
+                  <div className="settings-section-head">
+                    <div className="settings-section-icon">
+                      <IconPin locked={canvasLocked} />
+                    </div>
+                    <span className="settings-section-title">{t("screenPosition")}</span>
+                  </div>
+                  <span className="lobby-card-hint">{canvasLocked ? t("screenPositionLockedHint") : t("screenPositionHint")}</span>
+                  <div className="volume-row">
+                    <span className="volume-value" style={{ minWidth: 40 }}>{Math.round(canvasZoom * 100)}%</span>
+                    <input
+                      className="volume-slider"
+                      type="range"
+                      min={50}
+                      max={200}
+                      value={Math.round(canvasZoom * 100)}
+                      onChange={(event) => setCanvasZoom(Number(event.target.value) / 100)}
+                      aria-label={t("zoom")}
+                      disabled={canvasLocked}
+                    />
+                    <button className="btn-ghost" onClick={resetCanvasPosition} disabled={canvasLocked}>{t("recenter")}</button>
+                  </div>
+                  <button className={canvasLocked ? "scale-option active canvas-lock-btn" : "scale-option canvas-lock-btn"} onClick={toggleCanvasLock}>
+                    {canvasLocked ? t("unlockPosition") : t("lockPosition")}
+                  </button>
+                </div>
+
+                <div className="settings-section">
+                  <div className="settings-section-head">
+                    <div className="settings-section-icon">
+                      <IconTv active={crtEffect} />
+                    </div>
+                    <span className="settings-section-title">{t("crtEffect")}</span>
+                  </div>
+                  <span className="lobby-card-hint">{t("crtEffectHint")}</span>
+                  <button
+                    className={crtEffect ? "scale-option active canvas-lock-btn" : "scale-option canvas-lock-btn"}
+                    onClick={() => { setCrtEffect((v) => !v); playClickSound(); }}
+                  >
+                    {crtEffect ? "CRT Enabled" : "CRT Disabled"}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {settingsTab === "audio" && (
+              <>
+                <div className="settings-section">
+                  <div className="settings-section-head">
+                    <div className="settings-section-icon">
+                      <IconVolume muted={muted} />
+                    </div>
+                    <span className="settings-section-title">{t("volume")}</span>
+                  </div>
+                  <div className="volume-row">
+                    <button className="icon-button" aria-label={muted ? t("unmute") : t("mute")} onClick={() => setMuted((v) => !v)}><IconVolume muted={muted} /></button>
+                    <input
+                      className="volume-slider"
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={volume}
+                      onChange={(event) => { setVolume(Number(event.target.value)); setMuted(false); }}
+                    />
+                    <span className="volume-value">{muted ? 0 : volume}%</span>
+                  </div>
+                </div>
+
+                <div className="settings-section">
+                  <div className="settings-section-head">
+                    <div className="settings-section-icon">
+                      <IconSoundFx enabled={soundFxEnabled} />
+                    </div>
+                    <span className="settings-section-title">{t("soundFx")}</span>
+                  </div>
+                  <span className="lobby-card-hint">{t("soundFxHint")}</span>
+                  <button
+                    className={soundFxEnabled ? "scale-option active canvas-lock-btn" : "scale-option canvas-lock-btn"}
+                    onClick={() => {
+                      const next = !soundFxEnabled;
+                      setSoundEnabled(next);
+                      setSoundFxEnabledState(next);
+                      if (next) playClickSound();
+                    }}
+                  >
+                    {soundFxEnabled ? "Sound FX On" : "Sound FX Off"}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {settingsTab === "controls" && (
+              <>
+                <div className="settings-section">
+                  <div className="settings-section-head">
+                    <div className="settings-section-icon">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="6" width="20" height="12" rx="2" /><line x1="6" y1="10" x2="6" y2="14" /><line x1="4" y1="12" x2="8" y2="12" /><circle cx="16" cy="10" r="1" fill="currentColor" /><circle cx="18" cy="12" r="1" fill="currentColor" /></svg>
+                    </div>
+                    <span className="settings-section-title">{isTouchDevice ? t("layout") : t("controls")}</span>
+                  </div>
+                  <p className="console-detected">{t("controlsForConsole")} <span className="console-detected-name">{CONSOLES.find((c) => c.id === activeConsole)?.label ?? activeConsole.toUpperCase()}</span></p>
+
+                  {isTouchDevice && (
+                    <>
+                      <p className="settings-label">{t("handedness")}</p>
+                      <div className="scale-options">
+                        <button className={touchLayout === "standard" ? "scale-option active" : "scale-option"} onClick={() => setTouchLayout("standard")}>{t("standard")}</button>
+                        <button className={touchLayout === "swapped" ? "scale-option active" : "scale-option"} onClick={() => setTouchLayout("swapped")}>{t("lefthanded")}</button>
+                      </div>
+                      <p className="settings-label" style={{ marginTop: 6 }}>{t("buttonSize")}</p>
+                      <div className="scale-options">
+                        <button className={touchSize === "compact" ? "scale-option active" : "scale-option"} onClick={() => setTouchSize("compact")}>{t("compact")}</button>
+                        <button className={touchSize === "large" ? "scale-option active" : "scale-option"} onClick={() => setTouchSize("large")}>{t("large")}</button>
+                      </div>
+                      {activeConsole === "ps1" && (
+                        <>
+                          <p className="settings-label" style={{ marginTop: 6 }}>{t("ps1Input")}</p>
+                          <div className="scale-options">
+                            <button className={ps1ControlMode === "dpad" ? "scale-option active" : "scale-option"} onClick={() => setPs1ControlMode("dpad")}>十字キー</button>
+                            <button className={ps1ControlMode === "joystick" ? "scale-option active" : "scale-option"} onClick={() => setPs1ControlMode("joystick")}>アナログ</button>
+                          </div>
+                        </>
+                      )}
+                      <button
+                        className="edit-controls-btn"
+                        onClick={() => { setEditingControls(true); setSettingsOpen(false); }}
+                        style={{ marginTop: 10, width: "100%", padding: "10px 12px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, color: "#fff", fontSize: 13, cursor: "pointer", textAlign: "left" }}
+                      >
+                        ✏️ {t("editControls")}
+                      </button>
+                      {Object.keys(customPositions).length > 0 && (
+                        <button
+                          onClick={() => setCustomPositions({})}
+                          style={{ marginTop: 6, width: "100%", padding: "10px 12px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 8, color: "var(--danger)", fontSize: 13, cursor: "pointer" }}
+                        >
+                          🗑️ {t("resetControls")}
+                        </button>
+                      )}
+                    </>
+                  )}
+
+                  {!isTouchDevice && (
+                    <>
+                      <p className="settings-label">{t("keyboardBindings")} · P{playerNumber ?? 1}</p>
+                      <ul className="keybind-list">
+                        {activeConsoleButtons.map((button) => (
+                          <li key={button} className="keybind-row">
+                            <span className="keybind-name">{button}</span>
+                            <button className="keybind-key" onClick={() => rebindKey(button)}>
+                              {rebinding === button ? t("pressAKey") : keyBindings[button]}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+
+                <div className="settings-section">
+                  <div className="settings-section-head">
+                    <div className="settings-section-icon">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="6" width="20" height="12" rx="3" /><circle cx="8" cy="12" r="2" /><circle cx="16" cy="12" r="2" /></svg>
+                    </div>
+                    <span className="settings-section-title">
+                      <span className={gamepadConnected ? "gamepad-dot connected" : "gamepad-dot"} />
+                      {t("gamepad")} · P{playerNumber ?? 1}
+                    </span>
+                  </div>
+                  {gamepadConnected ? (
+                    <ul className="keybind-list">
+                      {activeConsoleButtons.map((button) => (
+                        <li key={button} className="keybind-row">
+                          <span className="keybind-name">{button}</span>
+                          <button className="keybind-key" onClick={() => setRebindingGamepad(button)}>
+                            {rebindingGamepad === button ? t("pressAButton") : `#${gamepadBindings[button]}`}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="lobby-card-hint">{t("gamepadHint")}</p>
+                  )}
+                </div>
+              </>
+            )}
+
+            </div>
+            <button className="settings-close-mobile" onClick={() => setSettingsOpen(false)}>
+              <IconClose /> {t("close")}
+            </button>
+          </div>
+        </div>
+      )}
+    </>}
+
+    {shareDialogRoom && (
+      <div className="share-dialog-backdrop" onClick={() => { setShareDialogRoom(null); setShareLinkCopied(false); }}>
+        <div className="share-dialog" onClick={(e) => e.stopPropagation()}>
+          <button className="share-dialog-close" onClick={() => { setShareDialogRoom(null); setShareLinkCopied(false); }}>
+            <IconClose />
+          </button>
+          <h2 className="share-dialog-title">{t("shareTitle")}</h2>
+          <p className="share-dialog-sub">{t("shareSubtitle")}</p>
+          <div className="share-dialog-link-box">
+            <span className="share-dialog-link">{shareLinkFor(shareDialogRoom)}</span>
+          </div>
+          <div className="share-dialog-actions">
+            <button className="share-dialog-btn share-copy" onClick={() => void copyShareLink(shareDialogRoom)}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              {shareLinkCopied ? t("linkCopied") : t("copyLink")}
+            </button>
+            <a className="share-dialog-btn share-whatsapp" href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`retroX — join my room: ${shareLinkFor(shareDialogRoom)}`)}`} target="_blank" rel="noopener noreferrer">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              {t("shareWhatsapp")}
+            </a>
+            <a className="share-dialog-btn share-telegram" href={`https://t.me/share/url?url=${encodeURIComponent(shareLinkFor(shareDialogRoom))}&text=${encodeURIComponent("retroX — join my room")}`} target="_blank" rel="noopener noreferrer">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M11.944 0A12 12 0 000 12a12 12 0 0012 12 12 12 0 0012-12A12 12 0 0012.056 0h-.112zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 01.171.325c.016.093.036.306.02.472-.18 1.898-.96 6.504-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.064-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+              {t("shareTelegram")}
+            </a>
+          </div>
+        </div>
+      </div>
+    )}
+  </main>;
+}

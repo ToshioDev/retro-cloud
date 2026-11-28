@@ -1,0 +1,1280 @@
+import { createServer } from "node:http";
+import { randomUUID, randomBytes, createHmac } from "node:crypto";
+import { readdir, stat, rename, unlink, readFile, writeFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { join, basename, extname } from "node:path";
+import { WebSocketServer, WebSocket } from "ws";
+import Docker from "dockerode";
+import yauzl from "yauzl";
+import * as auth from "./auth.js";
+
+type SignalMessage = {
+  type: "join" | "offer" | "answer" | "candidate" | "leave" | "chat" | "closed" | "transfer_host" | "owner_changed";
+  room?: string;
+  role?: string;
+  username?: string;
+  to?: string;
+  from?: string;
+  payload?: unknown;
+};
+
+type Peer = { id: string; room?: string; role?: string; playerNumber?: number; username?: string; socket: WebSocket; alive: boolean };
+type RoomState = { usedNumbers: Set<number> };
+
+const port = Number(process.env.PORT ?? 8080);
+const peers = new Map<string, Peer>();
+const rooms = new Map<string, RoomState>();
+
+const gameServerImage = process.env.GAME_SERVER_IMAGE ?? "piepacker-clone-game-server";
+const romsHostDir = process.env.ROMS_DIR ?? "";
+const romsLocalDir = "/roms";
+const biosHostDir = process.env.BIOS_DIR ?? "";
+const biosLocalDir = "/system";
+// Game-server containers use NetworkMode:"host", so they share the host network and can reach this
+// process via localhost.  Docker-internal DNS names like "signaling" don't resolve under host networking,
+// so we build the URL from the port this process actually listens on.  An explicit override is still
+// honoured for environments where the port mapping is different (e.g. Coolify reverse-proxy).
+const signalingUrlForGameServer = process.env.GAME_SERVER_SIGNALING_URL ?? `ws://localhost:${port}/signaling`;
+const publicIp = process.env.PUBLIC_IP ?? "";
+const docker = romsHostDir ? new Docker() : null;
+const managedRooms = new Map<string, { containerId: string; spawnTime: number }>();
+const roomOwners = new Map<string, string>();
+const roomVisibility = new Map<string, "public" | "private">();
+const roomFiles = new Map<string, { game: string; file: string }>();
+const extensionToGame: Record<string, string> = {
+  ".nes": "nes",
+  ".sfc": "snes",
+  ".smc": "snes",
+  ".bin": "ps1",
+  ".iso": "ps1",
+  ".img": "ps1",
+  ".pbp": "ps1",
+  ".chd": "ps1",
+  ".zip": "zip",
+};
+const zipExtractableExts = new Set([".nes", ".sfc", ".smc", ".bin", ".iso", ".img", ".pbp", ".chd"]);
+const maxRomUploadBytesByGame: Record<string, number> = { nes: 8 * 1024 * 1024, snes: 8 * 1024 * 1024, ps1: 2000 * 1024 * 1024, zip: 2000 * 1024 * 1024 };
+const maxBiosUploadBytes = 4 * 1024 * 1024;
+const ps1BiosFilename = "scph1001.bin";
+
+function gameForExtension(filename: string): string | null {
+  return extensionToGame[extname(filename).toLowerCase()] ?? null;
+}
+
+function extractZip(zipPath: string, destDir: string): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    yauzl.open(zipPath, { lazyEntries: true }, (err, zipfile) => {
+      if (err) return reject(err);
+      const extractedFiles: string[] = [];
+      zipfile.readEntry();
+      zipfile.on("entry", (entry) => {
+        if (/\/$/.test(entry.fileName)) {
+          zipfile.readEntry();
+          return;
+        }
+        const ext = extname(entry.fileName).toLowerCase();
+        if (!zipExtractableExts.has(ext)) {
+          zipfile.readEntry();
+          return;
+        }
+        const outName = basename(entry.fileName);
+        const outPath = join(destDir, outName);
+        zipfile.openReadStream(entry, (err2, readStream) => {
+          if (err2) return reject(err2);
+          const out = createWriteStream(outPath);
+          readStream.pipe(out);
+          out.on("finish", () => {
+            extractedFiles.push(outName);
+            zipfile.readEntry();
+          });
+        });
+      });
+      zipfile.on("end", () => resolve(extractedFiles));
+      zipfile.on("error", reject);
+    });
+  });
+}
+
+async function hasPs1Bios(): Promise<boolean> {
+  try {
+    const info = await stat(join(biosLocalDir, ps1BiosFilename));
+    return info.isFile() && info.size > 0;
+  } catch {
+    return false;
+  }
+}
+
+const romOwnersFile = join(romsLocalDir, ".owners.json");
+let romOwnersCache: Record<string, string> | null = null;
+
+async function loadRomOwners(): Promise<Record<string, string>> {
+  if (romOwnersCache) return romOwnersCache;
+  try {
+    romOwnersCache = JSON.parse(await readFile(romOwnersFile, "utf8"));
+  } catch {
+    romOwnersCache = {};
+  }
+  return romOwnersCache!;
+}
+
+async function setRomOwner(file: string, owner: string): Promise<void> {
+  const owners = await loadRomOwners();
+  owners[file] = owner;
+  romOwnersCache = owners;
+  await writeFile(romOwnersFile, JSON.stringify(owners, null, 2)).catch(() => {});
+}
+
+async function clearRomOwner(file: string): Promise<void> {
+  const owners = await loadRomOwners();
+  delete owners[file];
+  romOwnersCache = owners;
+  await writeFile(romOwnersFile, JSON.stringify(owners, null, 2)).catch(() => {});
+}
+
+async function listRoms(requester?: string): Promise<Array<{ file: string; game: string; size: number; owner: string | null }>> {
+  let entries: string[];
+  try {
+    entries = await readdir(romsLocalDir);
+  } catch {
+    return [];
+  }
+  const owners = await loadRomOwners();
+  const roms: Array<{ file: string; game: string; size: number; owner: string | null }> = [];
+  for (const entry of entries) {
+    const game = gameForExtension(entry);
+    if (!game) continue;
+    const owner = owners[entry] ?? null;
+    if (owner && owner !== requester) continue;
+    try {
+      const info = await stat(join(romsLocalDir, entry));
+      if (info.isFile()) roms.push({ file: entry, game, size: info.size, owner });
+    } catch {
+      // skip unreadable entries
+    }
+  }
+  return roms;
+}
+
+function randomRoomId(): string {
+  return randomBytes(4).toString("hex");
+}
+
+async function resolveGameServerImage(): Promise<string> {
+  if (!docker) throw new Error("docker is not configured");
+  const images = await docker.listImages({ filters: JSON.stringify({ reference: [gameServerImage] }) });
+  const newest = images
+    .filter((image) => image.RepoTags && image.RepoTags.length > 0)
+    .sort((a, b) => b.Created - a.Created)[0];
+  const tag = newest?.RepoTags?.find((repoTag) => !repoTag.endsWith(":latest")) ?? newest?.RepoTags?.[0];
+  if (!tag) {
+    throw new Error(`no built image found for ${gameServerImage}; deploy the game-server service first`);
+  }
+  return tag;
+}
+
+// Bitrate is baked into the room's GStreamer pipeline once at container start and never renegotiated —
+// there's no per-peer bandwidth estimation (see webrtc_pipeline.cpp), so the host picks a tier for the
+// whole room up front. "low" also skips the 2x pixel upscale (see game-server's LOW_BANDWIDTH), which
+// roughly halves the pixels the encoder has to spend bits on for the same visual clarity.
+const videoBitrateByTier: Record<string, string> = { high: "2500K", medium: "1500K", low: "700K" };
+
+async function spawnGameServer(game: string, romPath: string, owner: string, visibility: "public" | "private", file: string, bandwidth: string): Promise<string> {
+  if (!docker) throw new Error("room creation is disabled: ROMS_DIR is not configured on the signaling service");
+  if (game === "ps1" && !(await hasPs1Bios())) {
+    throw new Error("PS1 needs a BIOS file uploaded first (see the BIOS section in your profile)");
+  }
+  const room = randomRoomId();
+  const image = await resolveGameServerImage();
+  const binds = [`${romsHostDir}:/roms:ro`];
+  if (biosHostDir) binds.push(`${biosHostDir}:/system:ro`);
+  // This host is shared with several other unrelated apps. Without a cap, one room (PS1 3D titles
+  // especially — CPU-bound emulation plus CPU-bound x264 encoding) can spin unbounded, and an orphaned
+  // container (see reconcileOrphanedGameServers) left the whole VPS unresponsive for every user. PS1 gets
+  // a bit more headroom than NES/SNES since 3D emulation is meaningfully heavier than 2D.
+  const cpuCores = game === "ps1" ? 3 : 1;
+  const videoBitrate = videoBitrateByTier[bandwidth] ?? videoBitrateByTier.medium;
+  // Generate fresh TURN credentials for this game-server session
+  const turnCreds = generateTurnCredentials();
+  const envExtra: string[] = [];
+  if (turnCreds && turnUrl) {
+    envExtra.push(`TURN_URL=${turnUrl}`, `TURN_USERNAME=${turnCreds.username}`, `TURN_PASSWORD=${turnCreds.credential}`);
+  }
+  const container = await docker.createContainer({
+    Image: image,
+    Env: [
+      `GAME=${game}`,
+      `ROM_PATH=${romPath}`,
+      "WEBRTC_DEBUG=1",
+      `SIGNALING_URL=${signalingUrlForGameServer}`,
+      `SIGNALING_ROOM=${room}`,
+      `PUBLIC_IP=${publicIp}`,
+      `VIDEO_BITRATE=${videoBitrate}`,
+      `LOW_BANDWIDTH=${bandwidth === "low" ? "1" : "0"}`,
+      ...envExtra,
+    ],
+    HostConfig: {
+      Binds: binds,
+      NetworkMode: "host",
+      AutoRemove: true,
+      NanoCpus: cpuCores * 1_000_000_000,
+      Memory: 1024 * 1024 * 1024,
+      MemorySwap: 1024 * 1024 * 1024,
+    },
+  });
+  await container.start();
+  managedRooms.set(room, { containerId: container.id, spawnTime: Date.now() });
+  roomOwners.set(room, owner);
+  roomVisibility.set(room, visibility);
+  roomFiles.set(room, { game, file });
+  console.log(`[SIGNALING] spawned game-server for room ${room} (${game}, ${romPath}, owner=${owner}, ${visibility})`);
+  return room;
+}
+
+async function teardownRoom(room: string) {
+  const managed = managedRooms.get(room);
+  if (!managed || !docker) return;
+  managedRooms.delete(room);
+  roomOwners.delete(room);
+  roomVisibility.delete(room);
+  roomFiles.delete(room);
+  rooms.delete(room);
+  try {
+    await docker.getContainer(managed.containerId).stop();
+    console.log(`[SIGNALING] stopped game-server for empty room ${room}`);
+  } catch (error) {
+    console.error(`[SIGNALING] failed to stop game-server for room ${room}:`, error instanceof Error ? error.message : error);
+  }
+}
+
+// Room ownership lives only in memory (managedRooms/roomOwners/etc.), so every redeploy/restart of this
+// process forgets every game-server container it previously spawned — they keep running (and burning CPU
+// on the shared host indefinitely) with nothing left to ever stop them via teardownRoom(). This orphaned
+// several containers across repeated redeploys and starved the whole VPS (load average >20 on 8 cores),
+// taking the rest of the app down for every user. Since this process's in-memory state is always empty
+// right after boot, any game-server container already running at that point is by definition orphaned —
+// clean them all up before accepting new rooms.
+async function reconcileOrphanedGameServers() {
+  if (!docker) return;
+  try {
+    const containers = await docker.listContainers({ all: false, filters: JSON.stringify({ ancestor: [gameServerImage] }) });
+    for (const info of containers) {
+      try {
+        await docker.getContainer(info.Id).stop();
+        console.log(`[SIGNALING] stopped orphaned game-server container ${info.Id.slice(0, 12)} from a previous instance`);
+      } catch (error) {
+        console.error(`[SIGNALING] failed to stop orphaned container ${info.Id.slice(0, 12)}:`, error instanceof Error ? error.message : error);
+      }
+    }
+  } catch (error) {
+    console.error("[SIGNALING] failed to list containers for orphan cleanup:", error instanceof Error ? error.message : error);
+  }
+}
+
+// Maximum concurrent game-server containers. Each room uses one container with 1-3 CPU cores and 1 GiB
+// RAM. The VPS has 8 cores / 31 GiB total, shared with Coolify, Postgres, and other apps. 4 concurrent
+// game-servers is the safe ceiling — beyond that, encoding quality degrades and the host becomes
+// unresponsive.
+const MAX_CONCURRENT_GAME_SERVERS = Number(process.env.MAX_GAME_SERVERS ?? "4");
+
+// Maximum lifetime for a game-server container (ms). Rooms that stay open forever accumulate state
+// and risk leaking resources. Capped below the 1h TURN credential TTL so a long-lived room never
+// loses TURN connectivity: generateTurnCredentials() issues HMAC creds valid for turnTtlSeconds (3600s)
+// and the game-server container bakes them at spawn with no refresh path, so the container must
+// restart before the credentials expire. 50 min leaves a 10-min safety margin.
+const MAX_GAME_SERVER_LIFETIME_MS = 50 * 60 * 1000;
+
+// How often the watchdog runs (ms). Every 60 seconds: fast enough to catch problems before they
+// cascade, infrequent enough to not add meaningful overhead.
+const WATCHDOG_INTERVAL_MS = 60_000;
+
+async function watchdogCleanup() {
+  if (!docker) return;
+  const now = Date.now();
+  try {
+    // 1. Stop containers exceeding max lifetime
+    for (const [room, info] of managedRooms) {
+      const age = now - info.spawnTime;
+      if (age > MAX_GAME_SERVER_LIFETIME_MS) {
+        console.log(`[WATCHDOG] room ${room} exceeded max lifetime (${Math.round(age / 60000)} min), tearing down`);
+        await teardownRoom(room);
+      }
+    }
+
+    // 2. Health-check each tracked container: if Docker reports it as exited/restarting, clean it up
+    for (const [room, info] of managedRooms) {
+      try {
+        const container = docker.getContainer(info.containerId);
+        const inspect = await container.inspect();
+        const state = inspect.State;
+        if (!state.Running && !state.Paused) {
+          console.log(`[WATCHDOG] room ${room} container is not running (status=${state.Status}, exitCode=${state.ExitCode}), tearing down`);
+          await teardownRoom(room);
+        }
+      } catch {
+        // Container no longer exists in Docker at all — clean up the tracking
+        console.log(`[WATCHDOG] room ${room} container ${info.containerId.slice(0, 12)} missing from Docker, cleaning up`);
+        managedRooms.delete(room);
+        roomOwners.delete(room);
+        roomVisibility.delete(room);
+        roomFiles.delete(room);
+        rooms.delete(room);
+      }
+    }
+
+    // 3. Enforce max concurrent limit: if over limit, tear down oldest rooms first
+    if (managedRooms.size > MAX_CONCURRENT_GAME_SERVERS) {
+      const sorted = [...managedRooms.entries()].sort((a, b) => a[1].spawnTime - b[1].spawnTime);
+      while (sorted.length > MAX_CONCURRENT_GAME_SERVERS) {
+        const [oldestRoom] = sorted.shift()!;
+        console.log(`[WATCHDOG] over max concurrent (${managedRooms.size}/${MAX_CONCURRENT_GAME_SERVERS}), stopping oldest room ${oldestRoom}`);
+        await teardownRoom(oldestRoom);
+      }
+    }
+
+    // 4. Kill orphaned game-server containers not tracked by this instance
+    const containers = await docker.listContainers({ all: false, filters: JSON.stringify({ ancestor: [gameServerImage] }) });
+    const managedIds = new Set([...managedRooms.values()].map((info) => info.containerId));
+    for (const info of containers) {
+      if (managedIds.has(info.Id)) continue;
+      try {
+        await docker.getContainer(info.Id).stop();
+        console.log(`[WATCHDOG] stopped orphaned container ${info.Id.slice(0, 12)} (not tracked by any room)`);
+      } catch (error) {
+        console.error(`[WATCHDOG] failed to stop orphan ${info.Id.slice(0, 12)}:`, error instanceof Error ? error.message : error);
+      }
+    }
+
+    // 5. Log status summary
+    if (managedRooms.size > 0) {
+      const ages = [...managedRooms.entries()].map(([room, info]) => `${room}(${Math.round((now - info.spawnTime) / 60000)}m)`);
+      console.log(`[WATCHDOG] status: ${managedRooms.size}/${MAX_CONCURRENT_GAME_SERVERS} rooms active [${ages.join(", ")}]`);
+    }
+  } catch (error) {
+    console.error("[WATCHDOG] cleanup cycle failed:", error instanceof Error ? error.message : error);
+  }
+}
+
+// ── Rate limiting ──────────────────────────────────────────────────────────────
+// Simple in-memory sliding-window rate limiter.  Good enough for a single-process signaling server;
+// replaces itself with Redis-backed limiter if we scale to multiple processes later.
+const rateLimits = new Map<string, { count: number; windowStart: number }>();
+
+function rateLimit(key: string, maxRequests: number, windowMs: number): boolean {
+  const now = Date.now();
+  const entry = rateLimits.get(key);
+  if (!entry || now - entry.windowStart > windowMs) {
+    rateLimits.set(key, { count: 1, windowStart: now });
+    return false; // allowed
+  }
+  entry.count++;
+  return entry.count > maxRequests; // true = blocked
+}
+
+// Periodic cleanup of stale rate-limit entries (every 5 min)
+setInterval(() => {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [key, entry] of rateLimits) {
+    if (entry.windowStart < cutoff) rateLimits.delete(key);
+  }
+}, 5 * 60 * 1000);
+
+// ── TURN credentials (RFC draft-uberti-behave-turn-rest) ──────────────────────
+// Coturn is configured with a shared secret; this server generates time-limited
+// HMAC credentials so the frontend can obtain a valid username/password pair on
+// demand without exposing the secret.
+const turnSharedSecret = process.env.TURN_SHARED_SECRET ?? "";
+const turnUrl = process.env.TURN_URL ?? ""; // e.g. turn:23.138.88.186:3478
+const turnTtlSeconds = 3600; // 1 hour
+
+function generateTurnCredentials(): { username: string; credential: string } | null {
+  if (!turnSharedSecret || !turnUrl) return null;
+  const expiry = Math.floor(Date.now() / 1000) + turnTtlSeconds;
+  const username = `${expiry}`;
+  const hmac = createHmac("sha1", turnSharedSecret);
+  hmac.update(username);
+  const credential = hmac.digest("base64");
+  return { username, credential };
+}
+
+// ── Resource monitoring ──────────────────────────────────────────────────────
+async function getContainerStats(): Promise<Record<string, { cpu: number; memory: number; memoryLimit: number; pids: number }>> {
+  if (!docker) return {};
+  const stats: Record<string, { cpu: number; memory: number; memoryLimit: number; pids: number }> = {};
+  for (const [room, info] of managedRooms) {
+    try {
+      const container = docker.getContainer(info.containerId);
+      const report = await container.stats({ stream: false });
+      const cpuDelta = report.cpu_stats.cpu_usage.total_usage - (report.precpu_stats?.cpu_usage?.total_usage ?? 0);
+      const systemDelta = report.cpu_stats.system_cpu_usage - (report.precpu_stats?.system_cpu_usage ?? 0);
+      const cpuCount = report.cpu_stats.online_cpus ?? 1;
+      const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * cpuCount * 100 : 0;
+      stats[room] = {
+        cpu: Math.round(cpuPercent * 10) / 10,
+        memory: report.memory_stats.usage ?? 0,
+        memoryLimit: report.memory_stats.limit ?? 0,
+        pids: report.pids_stats?.current ?? 0,
+      };
+    } catch { /* container may have exited */ }
+  }
+  return stats;
+}
+
+function clientIp(request: import("node:http").IncomingMessage): string {
+  const forwarded = request.headers["x-forwarded-for"];
+  if (typeof forwarded === "string") return forwarded.split(",")[0].trim();
+  return request.socket.remoteAddress ?? "unknown";
+}
+
+function bearerToken(request: import("node:http").IncomingMessage): string | undefined {
+  const header = request.headers.authorization;
+  if (!header || !header.startsWith("Bearer ")) return undefined;
+  return header.slice("Bearer ".length);
+}
+
+function readJsonBody<T>(request: import("node:http").IncomingMessage): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    request.on("data", (chunk) => { raw += chunk; if (raw.length > 4096) request.destroy(); });
+    request.on("end", () => {
+      try { resolve(JSON.parse(raw || "{}") as T); } catch (error) { reject(error); }
+    });
+    request.on("error", reject);
+  });
+}
+const httpServer = createServer((request, response) => {
+  void handleRequest(request, response);
+});
+
+async function handleRequest(request: import("node:http").IncomingMessage, response: import("node:http").ServerResponse) {
+  response.setHeader("Access-Control-Allow-Origin", "*");
+  response.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  response.setHeader("Access-Control-Allow-Headers", "content-type, authorization");
+  if (request.method === "OPTIONS") {
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+  if (request.method === "POST" && request.url === "/health") {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ status: "ok", service: "signaling" }));
+    return;
+  }
+  if (request.method === "GET" && request.url?.startsWith("/ping")) {
+    const url = new URL(request.url, "http://localhost");
+    const dl = url.searchParams.get("dl");
+    if (dl) {
+      response.writeHead(200, { "content-type": "application/octet-stream" });
+      response.end(Buffer.alloc(65536));
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/plain", "cache-control": "no-store" });
+    response.end("pong");
+    return;
+  }
+  // Health check for Coolify load balancer (plain text, minimal overhead)
+  if (request.method === "GET" && request.url === "/") {
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.end("ok");
+    return;
+  }
+  // Config endpoint: tells the frontend how to reach the signaling server.
+  // Avoids hard-coding the WebSocket URL at build time — works in any deployment.
+  if (request.method === "GET" && request.url === "/config") {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ signalingPort: port }));
+    return;
+  }
+  if (request.method === "GET" && request.url === "/status") {
+    const activePeers = [...peers.values()].filter((p) => p.room).length;
+    const roomsWithHosts = new Set<string>();
+    for (const peer of peers.values()) {
+      if (peer.room && peer.role === "host") roomsWithHosts.add(peer.room);
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      uptime: Math.round(process.uptime()),
+      peers: peers.size,
+      activePeers,
+      activeRooms: roomsWithHosts.size,
+      managedContainers: managedRooms.size,
+      maxContainers: MAX_CONCURRENT_GAME_SERVERS,
+      turnEnabled: !!turnSharedSecret && !!turnUrl,
+      memoryUsage: process.memoryUsage(),
+    }));
+    return;
+  }
+  if (request.method === "GET" && request.url === "/metrics") {
+    if (!docker) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ containers: {}, signaling: { memoryUsage: process.memoryUsage() } }));
+      return;
+    }
+    const containerStats = await getContainerStats();
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      signaling: { memoryUsage: process.memoryUsage(), uptime: Math.round(process.uptime()) },
+      containers: containerStats,
+    }));
+    return;
+  }
+  if (request.method === "GET" && request.url === "/turn") {
+    const credentials = generateTurnCredentials();
+    if (!credentials) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ enabled: false }));
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      enabled: true,
+      url: turnUrl,
+      ttl: turnTtlSeconds,
+      ...credentials,
+    }));
+    return;
+  }
+  if (request.method === "GET" && request.url === "/rooms") {
+    const requester = await auth.usernameForToken(bearerToken(request));
+    const peerCounts = new Map<string, number>();
+    const hostedRooms = new Set<string>();
+    for (const peer of peers.values()) {
+      if (!peer.room) continue;
+      if (peer.role === "host") { hostedRooms.add(peer.room); continue; }
+      peerCounts.set(peer.room, (peerCounts.get(peer.room) ?? 0) + 1);
+    }
+    const candidateRooms = [...hostedRooms].filter((room) => roomOwners.has(room));
+    const visibleRooms: string[] = [];
+    for (const room of candidateRooms) {
+      if (roomVisibility.get(room) === "public" || roomOwners.get(room) === requester) {
+        visibleRooms.push(room);
+        continue;
+      }
+      const owner = roomOwners.get(room);
+      if (requester && owner && (await auth.areFriends(requester, owner))) visibleRooms.push(room);
+    }
+    const activeRooms = visibleRooms.map((room) => ({
+      room,
+      peerCount: peerCounts.get(room) ?? 0,
+      owner: roomOwners.get(room) ?? null,
+      visibility: roomVisibility.get(room) ?? "public",
+      game: roomFiles.get(room)?.game ?? null,
+      file: roomFiles.get(room)?.file ?? null,
+    }));
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ rooms: activeRooms }));
+    return;
+  }
+  if (request.method === "GET" && request.url === "/roms") {
+    const requester = await auth.usernameForToken(bearerToken(request));
+    const roms = await listRoms(requester);
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ roms }));
+    return;
+  }
+  if (request.method === "DELETE" && request.url?.startsWith("/roms/")) {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const file = basename(decodeURIComponent(request.url.slice("/roms/".length).split("?")[0]));
+    const owners = await loadRomOwners();
+    if (owners[file] !== username) {
+      response.writeHead(403, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "you can only delete ROMs you uploaded" }));
+      return;
+    }
+    try {
+      await unlink(join(romsLocalDir, file));
+      await clearRomOwner(file);
+      response.writeHead(204);
+      response.end();
+    } catch (error) {
+      response.writeHead(500, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to delete ROM" }));
+    }
+    return;
+  }
+  if (request.method === "POST" && request.url === "/roms/share") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const body = await readJsonBody<{ friend: string; romFile: string }>(request);
+    if (!body.friend || !body.romFile) {
+      response.writeHead(400, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "friend and romFile required" }));
+      return;
+    }
+    const owners = await loadRomOwners();
+    if (owners[body.romFile] !== username) {
+      response.writeHead(403, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "you can only share ROMs you uploaded" }));
+      return;
+    }
+    await auth.shareRom(username, body.friend, body.romFile);
+    response.writeHead(201, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ok: true }));
+    return;
+  }
+  if (request.method === "DELETE" && request.url === "/roms/share") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const body = await readJsonBody<{ friend: string; romFile: string }>(request);
+    if (!body.friend || !body.romFile) {
+      response.writeHead(400, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "friend and romFile required" }));
+      return;
+    }
+    await auth.unshareRom(username, body.friend, body.romFile);
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+  if (request.method === "GET" && request.url === "/roms/shared") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const shared = await auth.getSharedRoms(username);
+    const owners = await loadRomOwners();
+    const entries: Array<{ owner: string; friend: string; rom_file: string; rom: { file: string; game: string; size: number; owner: string } | null }> = [];
+    for (const s of shared) {
+      let rom: { file: string; game: string; size: number; owner: string } | null = null;
+      try {
+        const info = await stat(join(romsLocalDir, s.rom_file));
+        if (info.isFile()) {
+          const game = gameForExtension(s.rom_file);
+          if (game) rom = { file: s.rom_file, game, size: info.size, owner: s.owner };
+        }
+      } catch { /* ROM file missing */ }
+      entries.push({ ...s, rom });
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ shared: entries }));
+    return;
+  }
+  if (request.method === "POST" && (request.url === "/roms" || request.url?.startsWith("/roms?"))) {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    if (rateLimit(`rom-upload:${username}`, 10, 60 * 60 * 1000)) {
+      response.writeHead(429, { "content-type": "application/json", "retry-after": "60" });
+      response.end(JSON.stringify({ error: "too many upload attempts, try again later" }));
+      return;
+    }
+    const requestedName = basename(new URL(request.url ?? "/roms", "http://internal").searchParams.get("filename") ?? "");
+    const game = gameForExtension(requestedName);
+    if (!requestedName || !game) {
+      response.writeHead(400, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "filename must end in .nes, .sfc, .smc, .bin, .iso, .img, .pbp, .chd, or .zip" }));
+      return;
+    }
+    const maxRomUploadBytes = maxRomUploadBytesByGame[game] ?? 8 * 1024 * 1024;
+    const finalPath = join(romsLocalDir, requestedName);
+    const tmpPath = `${finalPath}.uploading-${randomUUID()}`;
+    let receivedBytes = 0;
+    let aborted = false;
+    const out = createWriteStream(tmpPath);
+    request.on("data", (chunk: Buffer) => {
+      receivedBytes += chunk.length;
+      if (receivedBytes > maxRomUploadBytes) {
+        aborted = true;
+        request.destroy();
+        out.destroy();
+        void unlink(tmpPath).catch(() => {});
+      }
+    });
+    request.pipe(out);
+    out.on("finish", () => {
+      if (aborted) return;
+      rename(tmpPath, finalPath)
+        .then(async () => {
+          if (extname(requestedName).toLowerCase() === ".zip") {
+            try {
+              const extracted = await extractZip(finalPath, romsLocalDir);
+              await unlink(finalPath);
+              if (extracted.length === 0) {
+                response.writeHead(400, { "content-type": "application/json" });
+                response.end(JSON.stringify({ error: "ZIP contains no supported ROM files (.nes, .sfc, .bin, .iso, .chd, etc.)" }));
+                return;
+              }
+              const results = [];
+              for (const name of extracted) {
+                const g = gameForExtension(name);
+                if (g && g !== "zip") {
+                  await setRomOwner(name, username);
+                  const info = await stat(join(romsLocalDir, name));
+                  results.push({ file: name, game: g, size: info.size, owner: username });
+                }
+              }
+              console.log(`[SIGNALING] ${username} uploaded ZIP ${requestedName}, extracted ${extracted.length} ROM(s)`);
+              response.writeHead(201, { "content-type": "application/json" });
+              response.end(JSON.stringify(results.length === 1 ? results[0] : { files: results }));
+            } catch (zipErr) {
+              void unlink(finalPath).catch(() => {});
+              response.writeHead(400, { "content-type": "application/json" });
+              response.end(JSON.stringify({ error: `failed to extract ZIP: ${zipErr instanceof Error ? zipErr.message : "unknown error"}` }));
+            }
+            return;
+          }
+          await setRomOwner(requestedName, username);
+          console.log(`[SIGNALING] ${username} uploaded ROM ${requestedName} (${receivedBytes} bytes)`);
+          response.writeHead(201, { "content-type": "application/json" });
+          response.end(JSON.stringify({ file: requestedName, game, size: receivedBytes, owner: username }));
+        })
+        .catch((error) => {
+          response.writeHead(500, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to save ROM" }));
+        });
+    });
+    request.on("error", () => {
+      void unlink(tmpPath).catch(() => {});
+      if (!response.headersSent) {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "upload failed" }));
+      }
+    });
+    return;
+  }
+  if (request.method === "GET" && request.url === "/bios") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ps1: await hasPs1Bios() }));
+    return;
+  }
+  if (request.method === "POST" && request.url === "/bios/ps1") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    if (!biosHostDir) {
+      response.writeHead(500, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "BIOS_DIR is not configured on the signaling service" }));
+      return;
+    }
+    const finalPath = join(biosLocalDir, ps1BiosFilename);
+    const tmpPath = `${finalPath}.uploading-${randomUUID()}`;
+    let receivedBytes = 0;
+    let aborted = false;
+    const out = createWriteStream(tmpPath);
+    request.on("data", (chunk: Buffer) => {
+      receivedBytes += chunk.length;
+      if (receivedBytes > maxBiosUploadBytes) {
+        aborted = true;
+        request.destroy();
+        out.destroy();
+        void unlink(tmpPath).catch(() => {});
+      }
+    });
+    request.pipe(out);
+    out.on("finish", () => {
+      if (aborted) return;
+      rename(tmpPath, finalPath)
+        .then(() => {
+          console.log(`[SIGNALING] ${username} uploaded PS1 BIOS (${receivedBytes} bytes)`);
+          response.writeHead(201, { "content-type": "application/json" });
+          response.end(JSON.stringify({ ps1: true, size: receivedBytes }));
+        })
+        .catch((error) => {
+          response.writeHead(500, { "content-type": "application/json" });
+          response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to save BIOS" }));
+        });
+    });
+    request.on("error", () => {
+      void unlink(tmpPath).catch(() => {});
+      if (!response.headersSent) {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "upload failed" }));
+      }
+    });
+    return;
+  }
+  if (request.method === "POST" && request.url === "/auth/register") {
+    if (rateLimit(`register:${clientIp(request)}`, 3, 60 * 60 * 1000)) {
+      response.writeHead(429, { "content-type": "application/json", "retry-after": "60" });
+      response.end(JSON.stringify({ error: "too many registration attempts, try again later" }));
+      return;
+    }
+    readJsonBody<{ username?: string; password?: string; email?: string }>(request)
+      .then(async (body) => {
+        const { token } = await auth.register(String(body.username ?? ""), String(body.password ?? ""), String(body.email ?? ""));
+        response.writeHead(201, { "content-type": "application/json" });
+        response.end(JSON.stringify({ token, username: body.username }));
+      })
+      .catch((error) => {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : "registration failed" }));
+      });
+    return;
+  }
+  if (request.method === "POST" && request.url === "/auth/login") {
+    if (rateLimit(`login:${clientIp(request)}`, 10, 60 * 60 * 1000)) {
+      response.writeHead(429, { "content-type": "application/json", "retry-after": "60" });
+      response.end(JSON.stringify({ error: "too many login attempts, try again later" }));
+      return;
+    }
+    readJsonBody<{ username?: string; password?: string }>(request)
+      .then(async (body) => {
+        const { token } = await auth.login(String(body.username ?? ""), String(body.password ?? ""));
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ token, username: body.username }));
+      })
+      .catch((error) => {
+        response.writeHead(401, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : "login failed" }));
+      });
+    return;
+  }
+  if (request.method === "POST" && request.url === "/auth/logout") {
+    await auth.logout(bearerToken(request));
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+  if (request.method === "GET" && request.url === "/auth/me") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const profile = await auth.getProfile(username);
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(profile));
+    return;
+  }
+  if (request.method === "POST" && request.url === "/auth/email") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    readJsonBody<{ email?: string }>(request)
+      .then(async (body) => {
+        await auth.setEmail(username, String(body.email ?? ""));
+        response.writeHead(204);
+        response.end();
+      })
+      .catch((error) => {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to set email" }));
+      });
+    return;
+  }
+  if (request.method === "GET" && request.url === "/friends") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const list = await auth.listFriends(username);
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(list));
+    return;
+  }
+  if (request.method === "POST" && request.url === "/friends/request") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    readJsonBody<{ username?: string }>(request)
+      .then(async (body) => {
+        await auth.sendFriendRequest(username, String(body.username ?? ""));
+        response.writeHead(204);
+        response.end();
+      })
+      .catch((error) => {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to send friend request" }));
+      });
+    return;
+  }
+  if (request.method === "POST" && request.url === "/friends/respond") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    readJsonBody<{ username?: string; accept?: boolean }>(request)
+      .then(async (body) => {
+        await auth.respondFriendRequest(username, String(body.username ?? ""), !!body.accept);
+        response.writeHead(204);
+        response.end();
+      })
+      .catch((error) => {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to respond to friend request" }));
+      });
+    return;
+  }
+  if (request.method === "DELETE" && request.url?.startsWith("/friends/")) {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const other = decodeURIComponent(request.url.slice("/friends/".length).split("?")[0]);
+    await auth.removeFriend(username, other);
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+
+  // ── DM / Inbox endpoints ──────────────────────────────────────
+  if (request.method === "GET" && request.url === "/inbox") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) { response.writeHead(401, { "content-type": "application/json" }); response.end(JSON.stringify({ error: "authentication required" })); return; }
+    try {
+      const inbox = await auth.getInbox(username);
+      const unread = await auth.getUnreadCount(username);
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ inbox, unread }));
+    } catch (error) {
+      console.error("[SIGNALING] failed to load inbox:", error instanceof Error ? error.message : error);
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ inbox: [], unread: 0 }));
+    }
+    return;
+  }
+  if (request.method === "GET" && request.url?.startsWith("/dm/")) {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) { response.writeHead(401, { "content-type": "application/json" }); response.end(JSON.stringify({ error: "authentication required" })); return; }
+    try {
+      const peer = decodeURIComponent(request.url.slice("/dm/".length).split("?")[0]);
+      const url = new URL(request.url, "http://localhost");
+      const before = url.searchParams.get("before") ? parseInt(url.searchParams.get("before")!, 10) : undefined;
+      const messages = await auth.getConversation(username, peer, 50, before);
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ messages }));
+    } catch (error) {
+      console.error("[SIGNALING] failed to load DMs:", error instanceof Error ? error.message : error);
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ messages: [] }));
+    }
+    return;
+  }
+  if (request.method === "POST" && request.url?.startsWith("/dm/") && request.url?.endsWith("/read")) {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) { response.writeHead(401, { "content-type": "application/json" }); response.end(JSON.stringify({ error: "authentication required" })); return; }
+    try {
+      const peer = decodeURIComponent(request.url.slice("/dm/".length).replace("/read", ""));
+      await auth.markRead(peer, username);
+      response.writeHead(204);
+      response.end();
+    } catch (error) {
+      console.error("[SIGNALING] failed to mark read:", error instanceof Error ? error.message : error);
+      response.writeHead(204);
+      response.end();
+    }
+    return;
+  }
+  if (request.method === "POST" && request.url?.startsWith("/dm/")) {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) { response.writeHead(401, { "content-type": "application/json" }); response.end(JSON.stringify({ error: "authentication required" })); return; }
+    try {
+      const peer = decodeURIComponent(request.url.slice("/dm/".length));
+      const body = await readJsonBody<{ text?: string }>(request);
+      if (!body.text?.trim()) { response.writeHead(400, { "content-type": "application/json" }); response.end(JSON.stringify({ error: "message body required" })); return; }
+      const msg = await auth.sendDM(username, peer, body.text.trim().slice(0, 2000));
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify(msg));
+    } catch (error) {
+      console.error("[SIGNALING] failed to send DM:", error instanceof Error ? error.message : error);
+      response.writeHead(500, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "failed to send message" }));
+    }
+    return;
+  }
+
+  if (request.method === "POST" && request.url === "/rooms") {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    if (rateLimit(`room:${username}`, 10, 60 * 60 * 1000)) {
+      response.writeHead(429, { "content-type": "application/json", "retry-after": "60" });
+      response.end(JSON.stringify({ error: "too many room creation attempts, try again later" }));
+      return;
+    }
+    readJsonBody<{ file?: string; visibility?: string; bandwidth?: string }>(request)
+      .then(async (body) => {
+        if (managedRooms.size >= MAX_CONCURRENT_GAME_SERVERS) {
+          throw new Error(`server is at capacity (${managedRooms.size}/${MAX_CONCURRENT_GAME_SERVERS} rooms). Try again later.`);
+        }
+        let roms = await listRoms(username);
+        let rom = roms.find((entry) => entry.file === body.file) ?? roms[0];
+        if (!rom && body.file) {
+          const shared = await auth.getSharedRoms(username);
+          const sharedEntry = shared.find((s) => s.rom_file === body.file);
+          if (sharedEntry) {
+            try {
+              const info = await stat(join(romsLocalDir, sharedEntry.rom_file));
+              const game = gameForExtension(sharedEntry.rom_file);
+              if (info.isFile() && game) {
+                rom = { file: sharedEntry.rom_file, game, size: info.size, owner: sharedEntry.owner };
+              }
+            } catch { /* file missing */ }
+          }
+        }
+        if (!rom) throw new Error("no ROMs available: upload one first");
+        const visibility = body.visibility === "private" ? "private" : "public";
+        const bandwidth = ["high", "medium", "low"].includes(body.bandwidth ?? "") ? body.bandwidth! : "medium";
+        const romPath = `/roms/${rom.file}`;
+        const room = await spawnGameServer(rom.game, romPath, username, visibility, rom.file, bandwidth);
+        response.writeHead(201, { "content-type": "application/json" });
+        response.end(JSON.stringify({ room, game: rom.game, romPath, owner: username, visibility }));
+      })
+      .catch((error) => {
+        console.error("[SIGNALING] failed to create room:", error instanceof Error ? error.message : error);
+        response.writeHead(500, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: error instanceof Error ? error.message : "failed to create room" }));
+      });
+    return;
+  }
+  if (request.method === "DELETE" && request.url?.startsWith("/rooms/")) {
+    const username = await auth.usernameForToken(bearerToken(request));
+    if (!username) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "authentication required" }));
+      return;
+    }
+    const room = decodeURIComponent(request.url.slice("/rooms/".length).split("?")[0]);
+    const owner = roomOwners.get(room);
+    if (!owner) {
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "room not found" }));
+      return;
+    }
+    if (owner !== username) {
+      response.writeHead(403, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: "only the room owner can close this room" }));
+      return;
+    }
+    broadcastAll(room, { type: "closed", room, payload: { reason: "owner closed the room" } });
+    await teardownRoom(room);
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+  response.writeHead(404);
+  response.end();
+}
+
+const webSockets = new WebSocketServer({ noServer: true });
+httpServer.on("upgrade", (request, socket, head) => {
+  // Accept /signaling with or without trailing slash; strip query strings from reverse proxies
+  const path = request.url?.split("?")[0]?.replace(/\/+$/, "") ?? "";
+  const clientAddr = request.headers["x-forwarded-for"] ?? request.socket.remoteAddress ?? "unknown";
+  if (path !== "/signaling") {
+    console.log(`[WS] rejected upgrade for path="${request.url}" from ${clientAddr}`);
+    socket.destroy();
+    return;
+  }
+  console.log(`[WS] upgrade accepted from ${clientAddr}`);
+  webSockets.handleUpgrade(request, socket, head, (client) => webSockets.emit("connection", client, request));
+});
+
+function send(peer: Peer, message: SignalMessage) {
+  if (peer.socket.readyState === WebSocket.OPEN) peer.socket.send(JSON.stringify(message));
+}
+
+function broadcast(room: string, sender: string, message: SignalMessage) {
+  for (const peer of peers.values()) {
+    if (peer.room === room && peer.id !== sender) send(peer, message);
+  }
+}
+
+function broadcastAll(room: string, message: SignalMessage) {
+  for (const peer of peers.values()) {
+    if (peer.room === room) send(peer, message);
+  }
+}
+
+function allocatePlayerNumber(room: string, state: RoomState, username: string | undefined): number {
+  const owner = roomOwners.get(room);
+  if (owner && username === owner && !state.usedNumbers.has(1)) {
+    state.usedNumbers.add(1);
+    return 1;
+  }
+  let n = owner ? 2 : 1; // reserve slot 1 for the room owner whenever the room has a known owner
+  while (state.usedNumbers.has(n)) n++;
+  state.usedNumbers.add(n);
+  return n;
+}
+
+webSockets.on("connection", (socket) => {
+  const peer: Peer = { id: randomUUID(), socket, alive: true };
+  peers.set(peer.id, peer);
+  console.log(`[SIGNALING] connected ${peer.id}`);
+  socket.on("pong", () => { peer.alive = true; });
+
+  socket.on("message", (raw) => {
+    let message: SignalMessage;
+    try {
+      message = JSON.parse(raw.toString()) as SignalMessage;
+    } catch {
+      send(peer, { type: "leave", payload: { reason: "invalid_json" } });
+      return;
+    }
+    if (!["join", "offer", "answer", "candidate", "leave", "chat", "transfer_host"].includes(message.type)) return;
+    if (message.type === "join") {
+      if (peer.room) return; // ignore duplicate join on an already-registered connection
+      const room = typeof message.room === "string" && message.room.length <= 128 ? message.room : "default";
+      peer.room = room;
+      peer.role = message.role === "host" ? "host" : "player";
+      peer.username = typeof message.username === "string" ? message.username.slice(0, 32) : undefined;
+      if (!rooms.has(room)) rooms.set(room, { usedNumbers: new Set() });
+      const state = rooms.get(room)!;
+      if (peer.role === "player") {
+        peer.playerNumber = allocatePlayerNumber(room, state, peer.username);
+      }
+      const joinPayload = { peerId: peer.id, playerNumber: peer.playerNumber, role: peer.role, username: peer.username };
+      send(peer, { type: "join", room, payload: joinPayload });
+      broadcast(room, peer.id, { type: "join", room, payload: joinPayload });
+      // Catch the new peer up on everyone already in the room (and vice versa for a freshly booted host).
+      for (const other of peers.values()) {
+        if (other.id !== peer.id && other.room === room && other.role === "player") {
+          send(peer, { type: "join", room, payload: { peerId: other.id, playerNumber: other.playerNumber, role: "player", username: other.username } });
+        }
+      }
+      console.log(`[SIGNALING] ${peer.id} joined ${room} as ${peer.role}${peer.playerNumber ? ` P${peer.playerNumber}` : ""} (total peers: ${peers.size})`);
+    // Log room state for debugging
+    const roomPeers = [...peers.values()].filter((p) => p.room === room);
+    console.log(`[SIGNALING] room ${room}: ${roomPeers.map((p) => `${p.id.slice(0, 8)}(${p.role}${p.playerNumber ? "P" + p.playerNumber : ""})`).join(", ")}`);
+    // If a host just joined with players waiting, set a timer to check if offer was sent
+    if (peer.role === "host") {
+      const waitingPlayers = roomPeers.filter((p) => p.role === "player").length;
+      if (waitingPlayers > 0) {
+        setTimeout(() => {
+          const stillHasHost = [...peers.values()].some((p) => p.room === room && p.role === "host");
+          const stillHasPlayers = [...peers.values()].some((p) => p.room === room && p.role === "player");
+          if (stillHasHost && stillHasPlayers) {
+            console.log(`[SIGNALING] WARNING: room ${room} has host + ${waitingPlayers} player(s) but no WebRTC offer after 10s — game-server may not be producing frames`);
+          }
+        }, 10_000);
+      }
+    }
+    return;
+    }
+    if (!peer.room) return;
+    if (message.type === "leave") {
+      broadcast(peer.room, peer.id, { type: "leave", room: peer.room, payload: { peerId: peer.id } });
+      peer.room = undefined;
+      return;
+    }
+    if (message.type === "chat") {
+      const body = message.payload as { text?: string } | undefined;
+      const text = typeof body?.text === "string" ? body.text.slice(0, 500).trim() : "";
+      if (!text) return;
+      broadcastAll(peer.room, {
+        type: "chat", room: peer.room,
+        payload: { username: peer.username ?? "anon", playerNumber: peer.playerNumber, text, timestamp: Date.now() },
+      });
+      return;
+    }
+    if (message.type === "transfer_host") {
+      const currentOwner = roomOwners.get(peer.room);
+      if (!currentOwner || peer.username !== currentOwner) return;
+      const body = message.payload as { targetPeerId?: string } | undefined;
+      const target = typeof body?.targetPeerId === "string" ? peers.get(body.targetPeerId) : undefined;
+      if (!target || target.room !== peer.room || target.role !== "player" || !target.username) return;
+      roomOwners.set(peer.room, target.username);
+      console.log(`[SIGNALING] ${peer.room} host transferred: ${currentOwner} -> ${target.username}`);
+      broadcastAll(peer.room, { type: "owner_changed", room: peer.room, payload: { owner: target.username } });
+      return;
+    }
+    // offer/answer/candidate are point-to-point: deliver only to the addressed peer.
+    if (message.type === "offer" || message.type === "answer" || message.type === "candidate") {
+      const target = typeof message.to === "string" ? peers.get(message.to) : undefined;
+      if (!target || target.room !== peer.room) {
+        console.log(`[SIGNALING] ${message.type} from ${peer.id} → target ${message.to ?? "?"} NOT FOUND or different room`);
+        return;
+      }
+      send(target, { type: message.type, room: peer.room, from: peer.id, payload: message.payload });
+      console.log(`[SIGNALING] ${message.type} relayed ${peer.id} → ${message.to} (room=${peer.room})`);
+    }
+  });
+
+  socket.on("close", () => {
+    const room = peer.room;
+    if (room) broadcast(room, peer.id, { type: "leave", room, payload: { peerId: peer.id } });
+    peers.delete(peer.id);
+    console.log(`[SIGNALING] disconnected ${peer.id}`);
+    if (room && peer.playerNumber !== undefined) rooms.get(room)?.usedNumbers.delete(peer.playerNumber);
+    if (room && peer.role === "player" && managedRooms.has(room)) {
+      const remainingPlayers = [...peers.values()].some((other) => other.room === room && other.role === "player");
+      if (!remainingPlayers) void teardownRoom(room);
+    }
+  });
+});
+
+setInterval(() => {
+  for (const peer of peers.values()) {
+    if (!peer.alive) {
+      peer.socket.terminate();
+      continue;
+    }
+    peer.alive = false;
+    peer.socket.ping();
+  }
+}, 30_000);
+
+async function resourceMonitor() {
+  if (!docker || managedRooms.size === 0) return;
+  try {
+    const stats = await getContainerStats();
+    const entries = Object.entries(stats);
+    if (entries.length === 0) return;
+    const lines = entries.map(([room, s]) => {
+      const memMb = Math.round(s.memory / 1024 / 1024);
+      const memMaxMb = Math.round(s.memoryLimit / 1024 / 1024);
+      return `${room}: cpu=${s.cpu}% mem=${memMb}/${memMaxMb}MB pids=${s.pids}`;
+    });
+    console.log(`[MONITOR] ${lines.join(" | ")}`);
+    // Alert if any container is using >80% of its CPU quota or memory
+    for (const [room, s] of entries) {
+      if (s.cpu > 80) console.warn(`[MONITOR] WARNING: room ${room} CPU at ${s.cpu}%`);
+      if (s.memoryLimit > 0 && s.memory / s.memoryLimit > 0.8) {
+        console.warn(`[MONITOR] WARNING: room ${room} memory at ${Math.round(s.memory / s.memoryLimit * 100)}%`);
+      }
+    }
+  } catch { /* best effort */ }
+}
+
+void reconcileOrphanedGameServers().then(() => {
+  httpServer.listen(port, () => console.log(`[SIGNALING] listening on :${port}`));
+  // Start the periodic watchdog after the initial orphan cleanup
+  setInterval(watchdogCleanup, WATCHDOG_INTERVAL_MS);
+  // Resource monitoring every 5 minutes (lightweight, only when containers are running)
+  setInterval(resourceMonitor, 5 * 60 * 1000);
+  console.log(`[WATCHDOG] started (interval=${WATCHDOG_INTERVAL_MS / 1000}s, max-rooms=${MAX_CONCURRENT_GAME_SERVERS}, max-lifetime=${MAX_GAME_SERVER_LIFETIME_MS / 60000}min)`);
+  console.log(`[MONITOR] resource monitoring enabled (interval=300s)`);
+});
